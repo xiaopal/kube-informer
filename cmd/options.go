@@ -31,6 +31,8 @@ var (
 	parsedWatches                  []map[string]string
 	selector                       string
 	resyncDuration                 time.Duration
+	events                         []string
+	handlerEvents                  map[EventType]bool
 	handlerCommand                 []string
 	handlerName                    string
 	handlerPassStdin               bool
@@ -85,6 +87,11 @@ func initOptions(cmd *cobra.Command, args []string) (err error) {
 	}
 	if len(parsedWatches) < 1 {
 		return fmt.Errorf("--watch required")
+	}
+
+	handlerEvents = map[EventType]bool{}
+	for _, event := range events {
+		handlerEvents[EventType(event)] = true
 	}
 
 	if allNamespaces {
@@ -152,6 +159,7 @@ func init() {
 	flags.StringArrayVarP(&watches, "watch", "w", []string{}, "watch resources, eg. `apiVersion:v1,kind:ConfigMap`")
 	flags.StringVarP(&selector, "selector", "l", "", "selector (label query) to filter on")
 	flags.DurationVar(&resyncDuration, "resync", 0, "resync period")
+	flags.StringSliceVarP(&events, "events", "e", []string{string(EventAdd), string(EventUpdate), string(EventDelete)}, "handle events")
 	flags.StringVar(&handlerName, "name", "", "handler name")
 	flags.BoolVar(&handlerPassStdin, "pass-stdin", false, "pass obj json to handler stdin")
 	flags.BoolVar(&handlerPassEnv, "pass-env", false, "pass obj json to handler env INFORMER_OBJECT")

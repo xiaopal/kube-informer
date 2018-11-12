@@ -15,6 +15,9 @@ import (
 )
 
 func handleEvent(ctx context.Context, event EventType, obj *unstructured.Unstructured, numRetries int) error {
+	if !handlerEvents[event] {
+		return nil
+	}
 	handler := exec.CommandContext(ctx, handlerCommand[0], handlerCommand[1:]...)
 	if err := setupHandler(handler, event, obj, numRetries, handlerMaxRetries); err != nil {
 		return fmt.Errorf("failed to setup handler: %v", err)
