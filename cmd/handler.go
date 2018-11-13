@@ -22,6 +22,8 @@ func handleEvent(ctx context.Context, event EventType, obj *unstructured.Unstruc
 	if err := setupHandler(handler, event, obj, numRetries, handlerMaxRetries); err != nil {
 		return fmt.Errorf("failed to setup handler: %v", err)
 	}
+	pauseChildrenReaper(true)
+	defer pauseChildrenReaper(false)
 	if err := handler.Run(); err != nil {
 		return fmt.Errorf("failed to execute handler: %v", err)
 	}

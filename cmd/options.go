@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -56,7 +57,7 @@ var (
 func parseWatch(watch string) map[string]string {
 	opts := map[string]string{}
 	for _, s := range strings.Split(watch, ",") {
-		if opt := strings.SplitN(s, ":", 2); len(opt) == 2 {
+		if opt := strings.SplitN(s, "=", 2); len(opt) == 2 {
 			opts[strings.TrimSpace(opt[0])] = strings.TrimSpace(opt[1])
 		}
 	}
@@ -75,15 +76,19 @@ func defaultNamespace() string {
 func initOptions(cmd *cobra.Command, args []string) (err error) {
 	handlerCommand = args
 	if len(handlerCommand) < 1 {
-		return fmt.Errorf("handler args required")
+		return fmt.Errorf("handlerCommand required")
 	}
 	if handlerName == "" {
 		handlerName = filepath.Base(handlerCommand[0])
 	}
 
 	parsedWatches = []map[string]string{}
-	for _, watch := range watches {
-		parsedWatches = append(parsedWatches, parseWatch(watch))
+	for _, line := range watches {
+		for _, watch := range strings.Split(line, ":") {
+			if strings.TrimSpace(watch) != "" {
+				parsedWatches = append(parsedWatches, parseWatch(watch))
+			}
+		}
 	}
 	if len(parsedWatches) < 1 {
 		return fmt.Errorf("--watch required")
@@ -131,6 +136,24 @@ func handlerRateLimiter() workqueue.RateLimiter {
 	)
 }
 
+func envToInt(key string, d int) int {
+	if v := os.Getenv(key); v != "" {
+		if ret, err := strconv.Atoi(v); err == nil {
+			return ret
+		}
+	}
+	return d
+}
+
+func envToDuration(key string, d time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if ret, err := time.ParseDuration(v); err == nil {
+			return ret
+		}
+	}
+	return d
+}
+
 func init() {
 	logger = log.New(os.Stderr, "[kube-informer] ", log.Flags())
 	cmd := &cobra.Command{
@@ -141,34 +164,46 @@ func init() {
 		},
 	}
 
-	if kubeconfigpath = os.Getenv("KUBECONFIG"); kubeconfigpath == "" {
-		if home := os.Getenv("HOME"); home != "" {
-			defaultKubeconfigpath := filepath.Join(home, ".kube", "config")
-			if _, err := os.Stat(defaultKubeconfigpath); !os.IsNotExist(err) {
-				kubeconfigpath = defaultKubeconfigpath
+	if kubeconfigpath = os.Getenv("INFORMER_OPTS_KUBECONFIG"); kubeconfigpath == "" {
+		if kubeconfigpath = os.Getenv("KUBECONFIG"); kubeconfigpath == "" {
+			if home := os.Getenv("HOME"); home != "" {
+				defaultKubeconfigpath := filepath.Join(home, ".kube", "config")
+				if _, err := os.Stat(defaultKubeconfigpath); !os.IsNotExist(err) {
+					kubeconfigpath = defaultKubeconfigpath
+				}
 			}
 		}
+	}
+
+	events = []string{string(EventAdd), string(EventUpdate), string(EventDelete)}
+	if envEvents := os.Getenv("INFORMER_OPTS_EVENT"); envEvents != "" {
+		events = strings.Fields(envEvents)
+	}
+
+	watches = []string{}
+	if envWatch := os.Getenv("INFORMER_OPTS_WATCH"); envWatch != "" {
+		watches = strings.Split(envWatch, ":")
 	}
 
 	flags := cmd.Flags()
 	flags.AddGoFlagSet(flag.CommandLine)
 	flags.StringVar(&kubeconfigpath, "kubeconfig", kubeconfigpath, "path to the kubeconfig file")
-	flags.StringVarP(&masterURL, "server", "s", "", "URL of the Kubernetes API server")
-	flags.StringVarP(&namespace, "namespace", "n", "", "namespace")
-	flags.BoolVar(&allNamespaces, "all-namespaces", false, "all namespaces")
-	flags.StringArrayVarP(&watches, "watch", "w", []string{}, "watch resources, eg. `apiVersion:v1,kind:ConfigMap`")
-	flags.StringVarP(&selector, "selector", "l", "", "selector (label query) to filter on")
-	flags.DurationVar(&resyncDuration, "resync", 0, "resync period")
-	flags.StringSliceVarP(&events, "events", "e", []string{string(EventAdd), string(EventUpdate), string(EventDelete)}, "handle events")
-	flags.StringVar(&handlerName, "name", "", "handler name")
-	flags.BoolVar(&handlerPassStdin, "pass-stdin", false, "pass obj json to handler stdin")
-	flags.BoolVar(&handlerPassEnv, "pass-env", false, "pass obj json to handler env INFORMER_OBJECT")
-	flags.BoolVar(&handlerPassArgs, "pass-args", false, "pass event and obj json to handler arg")
-	flags.IntVar(&handlerMaxRetries, "max-retries", 15, "handler max retries, -1 for unlimited")
-	flags.DurationVar(&handlerRetriesBaseDelay, "retries-base-delay", 5*time.Millisecond, "handler retries: base delay")
-	flags.DurationVar(&handlerRetriesMaxDelay, "retries-max-delay", 1000*time.Second, "handler retries: max delay")
-	flags.StringVar(&leaderElectLockObjectName, "leader-elect", os.Getenv("INFORMER_LEADER_ELECT"), "leader election: [endpoints|configmaps/]<object name>")
-	flags.StringVar(&leaderElectLockObjectNamespace, "leader-elect-namespace", os.Getenv("INFORMER_LEADER_ELECT_NAMESPACE"), "leader election: object namespace")
+	flags.StringVarP(&masterURL, "server", "s", os.Getenv("INFORMER_OPTS_SERVER"), "URL of the Kubernetes API server")
+	flags.StringVarP(&namespace, "namespace", "n", os.Getenv("INFORMER_OPTS_NAMESPACE"), "namespace")
+	flags.BoolVar(&allNamespaces, "all-namespaces", os.Getenv("INFORMER_OPTS_ALL_NAMESPACES") != "", "all namespaces")
+	flags.StringArrayVarP(&watches, "watch", "w", watches, "watch resources, eg. `apiVersion=v1,kind=ConfigMap`")
+	flags.StringVarP(&selector, "selector", "l", os.Getenv("INFORMER_OPTS_SELECTOR"), "selector (label query) to filter on")
+	flags.DurationVar(&resyncDuration, "resync", envToDuration("INFORMER_OPTS_RESYNC", 0), "resync period")
+	flags.StringSliceVarP(&events, "event", "e", events, "handle events")
+	flags.StringVar(&handlerName, "name", os.Getenv("INFORMER_OPTS_NAME"), "handler name")
+	flags.BoolVar(&handlerPassStdin, "pass-stdin", os.Getenv("INFORMER_OPTS_PASS_STDIN") != "", "pass obj json to handler stdin")
+	flags.BoolVar(&handlerPassEnv, "pass-env", os.Getenv("INFORMER_OPTS_PASS_ENV") != "", "pass obj json to handler env INFORMER_OBJECT")
+	flags.BoolVar(&handlerPassArgs, "pass-args", os.Getenv("INFORMER_OPTS_PASS_ARGS") != "", "pass event and obj json to handler arg")
+	flags.IntVar(&handlerMaxRetries, "max-retries", envToInt("INFORMER_OPTS_MAX_RETRIES", 15), "handler max retries, -1 for unlimited")
+	flags.DurationVar(&handlerRetriesBaseDelay, "retries-base-delay", envToDuration("INFORMER_OPTS_RETRIES_BASE_DELAY", 5*time.Millisecond), "handler retries: base delay")
+	flags.DurationVar(&handlerRetriesMaxDelay, "retries-max-delay", envToDuration("INFORMER_OPTS_RETRIES_MAX_DELAY", 1000*time.Second), "handler retries: max delay")
+	flags.StringVar(&leaderElectLockObjectName, "leader-elect", os.Getenv("INFORMER_OPTS_LEADER_ELECT"), "leader election: [endpoints|configmaps/]<object name>")
+	flags.StringVar(&leaderElectLockObjectNamespace, "leader-elect-namespace", os.Getenv("INFORMER_OPTS_LEADER_ELECT_NAMESPACE"), "leader election: object namespace")
 	flags.DurationVar(&leaderElectLeaseDuration, "leader-elect-lease-duration", 15*time.Second, "leader election: lease duration")
 	flags.DurationVar(&leaderElectRenewDeadline, "leader-elect-renew-deadline", 10*time.Second, "leader election: renew deadline")
 	flags.DurationVar(&leaderElectRetryPeriod, "leader-elect-retry-period", 2*time.Second, "leader election: retry period")

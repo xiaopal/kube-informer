@@ -20,6 +20,7 @@ func leaderRun(ctx context.Context, runFunc func(context.Context)) {
 		return
 	}
 	logger := log.New(os.Stderr, "[leader-election] ", log.Flags())
+	ctx, leave := context.WithCancel(ctx)
 	lec, err := corev1.NewForConfig(kubeconfig)
 	if err != nil {
 		logger.Fatalf("failed to get CoreV1 Client: %v", err)
@@ -53,9 +54,10 @@ func leaderRun(ctx context.Context, runFunc func(context.Context)) {
 			OnStartedLeading: func(ctx context.Context) {
 				logger.Printf("leader started: %s", id)
 				runFunc(ctx)
+				leave()
 			},
 			OnStoppedLeading: func() {
-				logger.Printf("leader lost")
+				logger.Printf("leaving")
 			},
 			OnNewLeader: func(identity string) {
 				if identity == id {

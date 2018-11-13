@@ -146,7 +146,9 @@ func (le *LeaderElector) Run(ctx context.Context) {
 	defer func() {
 		//patch begin: leave
 		if le.IsLeader() {
-			le.config.Lock.Update(rl.LeaderElectionRecord{})
+			if err := le.config.Lock.Update(rl.LeaderElectionRecord{}); err != nil {
+				glog.Errorf("Failed to update lock(leave): %v", err)
+			}
 		}
 		//patch end
 		runtime.HandleCrash()
