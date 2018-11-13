@@ -23,10 +23,9 @@ func runInformer(ctx context.Context) {
 	<-ctx.Done()
 }
 
-func main() {
+func safeContext() context.Context {
 	interruptChan := make(chan os.Signal, 2)
 	signal.Notify(interruptChan, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(interruptChan)
 	ctx, interrupt := context.WithCancel(context.Background())
 	go func() {
 		select {
@@ -35,6 +34,37 @@ func main() {
 			interrupt()
 		case <-ctx.Done():
 		}
+		signal.Stop(interruptChan)
 	}()
+	return ctx
+}
+
+func childrenReaper(ctx context.Context) {
+	childChan := make(chan os.Signal, 10)
+	signal.Notify(childChan, syscall.SIGCHLD)
+	defer signal.Stop(childChan)
+	for {
+		select {
+		case <-childChan:
+			var wstatus syscall.WaitStatus
+			for {
+				if pid, _ := syscall.Wait4(-1, &wstatus, syscall.WNOHANG, nil); pid > 0 {
+					continue
+				}
+				break
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func main() {
+	ctx := safeContext()
+
+	if os.Getpid() == 1 {
+		go childrenReaper(ctx)
+	}
+
 	leaderRun(ctx, runInformer)
 }
