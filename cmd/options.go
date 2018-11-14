@@ -22,10 +22,6 @@ import (
 
 var (
 	logger                  *log.Logger
-	kubeconfigpath          string
-	masterURL               string
-	namespace               string
-	allNamespaces           bool
 	watches                 []string
 	parsedWatches           []map[string]string
 	selector                string
@@ -118,17 +114,6 @@ func init() {
 		Run: func(cmd *cobra.Command, args []string) {
 			initialized = true
 		},
-	}
-
-	if kubeconfigpath = os.Getenv("INFORMER_OPTS_KUBECONFIG"); kubeconfigpath == "" {
-		if kubeconfigpath = os.Getenv("KUBECONFIG"); kubeconfigpath == "" {
-			if home := os.Getenv("HOME"); home != "" {
-				defaultKubeconfigpath := filepath.Join(home, ".kube", "config")
-				if _, err := os.Stat(defaultKubeconfigpath); !os.IsNotExist(err) {
-					kubeconfigpath = defaultKubeconfigpath
-				}
-			}
-		}
 	}
 
 	events = []string{string(EventAdd), string(EventUpdate), string(EventDelete)}
