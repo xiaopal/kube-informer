@@ -1,4 +1,4 @@
-package main
+package subreaper
 
 import (
 	"context"
@@ -8,17 +8,28 @@ import (
 	"syscall"
 )
 
-var childrenReaperPauseChan chan bool
+//Pause func
+func Pause() {
+	pause(true)
+}
 
-func pauseChildrenReaper(paused bool) {
-	if childrenReaperPauseChan != nil {
-		childrenReaperPauseChan <- paused
+//Resume func
+func Resume() {
+	pause(true)
+}
+
+var pauseChan chan bool
+
+func pause(paused bool) {
+	if pauseChan != nil {
+		pauseChan <- paused
 	}
 }
 
-func startChildrenReaper(ctx context.Context) {
+//Start func
+func Start(ctx context.Context) {
 	logger := log.New(os.Stderr, "[children-reaper] ", log.Flags())
-	childrenReaperPauseChan = make(chan bool, 0)
+	pauseChan = make(chan bool, 0)
 	childChan := make(chan os.Signal, 10)
 	leapChildren := func() {
 		var wstatus syscall.WaitStatus
@@ -32,11 +43,15 @@ func startChildrenReaper(ctx context.Context) {
 	}
 	go func() {
 		signal.Notify(childChan, syscall.SIGCHLD)
-		defer signal.Stop(childChan)
+		defer func() {
+			signal.Stop(childChan)
+			close(childChan)
+			close(pauseChan)
+		}()
 		paused := false
 		for {
 			select {
-			case paused = <-childrenReaperPauseChan:
+			case paused = <-pauseChan:
 				if !paused {
 					leapChildren()
 				}
@@ -45,8 +60,6 @@ func startChildrenReaper(ctx context.Context) {
 					leapChildren()
 				}
 			case <-ctx.Done():
-				close(childChan)
-				close(childrenReaperPauseChan)
 				return
 			}
 		}

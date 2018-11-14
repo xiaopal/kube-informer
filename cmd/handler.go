@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/xiaopal/kube-informer/pkg/subreaper"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -22,8 +23,8 @@ func handleEvent(ctx context.Context, event EventType, obj *unstructured.Unstruc
 	if err := setupHandler(handler, event, obj, numRetries, handlerMaxRetries); err != nil {
 		return fmt.Errorf("failed to setup handler: %v", err)
 	}
-	pauseChildrenReaper(true)
-	defer pauseChildrenReaper(false)
+	subreaper.Pause()
+	defer subreaper.Resume()
 	if err := handler.Run(); err != nil {
 		return fmt.Errorf("failed to execute handler: %v", err)
 	}

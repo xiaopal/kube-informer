@@ -3,12 +3,18 @@ package main
 import (
 	"context"
 	"os"
-	"os/signal"
-	"syscall"
+
+	"github.com/xiaopal/kube-informer/pkg/appctx"
+	"github.com/xiaopal/kube-informer/pkg/subreaper"
 )
 
 func runInformer(ctx context.Context) {
-	informer := NewInformer(kubeconfig, InformerOpts{
+	config, err := kubeClient.GetConfig()
+	if err != nil {
+		logger.Printf("failed to get config: %v", err)
+		return
+	}
+	informer := NewInformer(config, InformerOpts{
 		Handler:     handleEvent,
 		MaxRetries:  handlerMaxRetries,
 		RateLimiter: handlerRateLimiter(),
@@ -24,29 +30,12 @@ func runInformer(ctx context.Context) {
 	<-ctx.Done()
 }
 
-func safeContext() (context.Context, func()) {
-	interruptChan := make(chan os.Signal, 2)
-	signal.Notify(interruptChan, syscall.SIGINT, syscall.SIGTERM)
-	ctx, endCtx := context.WithCancel(context.Background())
-	go func() {
-		select {
-		case sig := <-interruptChan:
-			logger.Printf("signal %v", sig)
-			endCtx()
-		case <-ctx.Done():
-		}
-		signal.Stop(interruptChan)
-	}()
-	return ctx, endCtx
-}
-
 func main() {
-	ctx, endCtx := safeContext()
+	ctx, endCtx := appctx.Start()
 	defer endCtx()
 
 	if os.Getpid() == 1 {
-		startChildrenReaper(ctx)
+		subreaper.Start(ctx)
 	}
-
-	leaderRun(ctx, runInformer)
+	leaderHelper.Run(ctx, runInformer)
 }
