@@ -31,11 +31,11 @@ func runInformer(ctx context.Context) {
 }
 
 func main() {
-	ctx, endCtx := appctx.Start()
-	defer endCtx()
+	app := appctx.Start()
+	defer app.End()
 
 	if os.Getpid() == 1 {
-		subreaper.Start(ctx)
+		subreaper.Start(app.Context())
 	}
-	leaderHelper.Run(ctx, runInformer)
+	leaderHelper.Run(app.Context(), runInformer)
 }

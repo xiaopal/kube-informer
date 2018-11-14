@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -130,6 +131,9 @@ func (h *helper) Run(ctx context.Context, handler func(context.Context)) {
 		logger.Fatalf("failed to init resourcelock: %v", err)
 	}
 
+	wg := &sync.WaitGroup{}
+	defer wg.Wait()
+
 	le, err := NewLeaderElector(LeaderElectionConfig{
 		Lock:          lock,
 		LeaseDuration: h.LeaseDuration,
@@ -138,6 +142,8 @@ func (h *helper) Run(ctx context.Context, handler func(context.Context)) {
 		Callbacks: LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
 				logger.Printf("leader started: %s", id)
+				wg.Add(1)
+				defer wg.Done()
 				handler(ctx)
 				leave()
 			},
