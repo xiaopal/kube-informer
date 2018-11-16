@@ -3,33 +3,49 @@ package subreaper
 import (
 	"context"
 	"log"
+	"math"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
+)
+
+const maxPauseCount = math.MaxInt32 / 2
+
+var (
+	logger           = log.New(os.Stderr, "[children-reaper] ", log.Flags())
+	pauseCount int32 = maxPauseCount
+	pauseChan        = make(chan int32, 0)
 )
 
 //Pause func
 func Pause() {
-	pause(true)
+	if c := atomic.AddInt32(&pauseCount, 1); c == 1 {
+		if pauseChan != nil {
+			pauseChan <- 1
+		}
+	}
 }
 
 //Resume func
 func Resume() {
-	pause(true)
+	if c := atomic.AddInt32(&pauseCount, -1); c <= 0 {
+		if pauseChan != nil {
+			pauseChan <- 0
+		}
+		for c < 0 && !atomic.CompareAndSwapInt32(&pauseCount, c, 0) {
+			c = atomic.LoadInt32(&pauseCount)
+		}
+	}
 }
 
-var pauseChan chan bool
-
-func pause(paused bool) {
-	if pauseChan != nil {
-		pauseChan <- paused
-	}
+//IsPaused func
+func IsPaused() bool {
+	return atomic.LoadInt32(&pauseCount) > 0
 }
 
 //Start func
 func Start(ctx context.Context) {
-	logger := log.New(os.Stderr, "[children-reaper] ", log.Flags())
-	pauseChan = make(chan bool, 0)
 	childChan := make(chan os.Signal, 10)
 	leapChildren := func() {
 		var wstatus syscall.WaitStatus
@@ -41,22 +57,23 @@ func Start(ctx context.Context) {
 			return
 		}
 	}
+	atomic.StoreInt32(&pauseCount, 0)
 	go func() {
 		signal.Notify(childChan, syscall.SIGCHLD)
 		defer func() {
+			atomic.StoreInt32(&pauseCount, maxPauseCount)
 			signal.Stop(childChan)
 			close(childChan)
 			close(pauseChan)
 		}()
-		paused := false
 		for {
 			select {
-			case paused = <-pauseChan:
-				if !paused {
+			case <-pauseChan:
+				if !IsPaused() {
 					leapChildren()
 				}
 			case <-childChan:
-				if !paused {
+				if !IsPaused() {
 					leapChildren()
 				}
 			case <-ctx.Done():

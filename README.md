@@ -14,6 +14,10 @@ bin/kube-informer --watch=apiVersion=v1,kind=ConfigMap:apiVersion=v1,kind=Secret
 
 bin/kube-informer --watch=apiVersion=v1,kind=Pod --leader-elect=endpoints/kube-informer -- env
 
+docker run -it --rm -v /root:/root -v $PWD/bin/kube-informer:/usr/bin/kube-informer debian:8 \
+kube-informer --watch apiVersion=v1,kind=ConfigMap --leader-elect=configmaps/kube-informer -- \
+bash -c 'sleep 1.5s & sleep 1s && echo $INFORMER_EVENT $INFORMER_OBJECT_NAMESPACE.$INFORMER_OBJECT_NAME'
+
 ```
 
 # docker image
