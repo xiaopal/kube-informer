@@ -21,24 +21,24 @@ import (
 )
 
 var (
-	logger                  *log.Logger
-	watches                 []string
-	parsedWatches           []map[string]string
-	selector                string
-	resyncDuration          time.Duration
-	events                  []string
-	handlerEvents           map[EventType]bool
-	handlerCommand          []string
-	handlerName             string
-	handlerPassStdin        bool
-	handlerPassEnv          bool
-	handlerPassArgs         bool
-	handlerMaxRetries       int
-	handlerRetriesBaseDelay time.Duration
-	handlerRetriesMaxDelay  time.Duration
-	kubeClient              kubeclient.Client
-	leaderHelper            leaderelect.Helper
-	initialized             bool
+	logger                       *log.Logger
+	watches                      []string
+	parsedWatches                []map[string]string
+	labelSelector, fieldSelector string
+	resyncDuration               time.Duration
+	events                       []string
+	handlerEvents                map[EventType]bool
+	handlerCommand               []string
+	handlerName                  string
+	handlerPassStdin             bool
+	handlerPassEnv               bool
+	handlerPassArgs              bool
+	handlerMaxRetries            int
+	handlerRetriesBaseDelay      time.Duration
+	handlerRetriesMaxDelay       time.Duration
+	kubeClient                   kubeclient.Client
+	leaderHelper                 leaderelect.Helper
+	initialized                  bool
 )
 
 func parseWatch(watch string) map[string]string {
@@ -139,7 +139,8 @@ func init() {
 	leaderHelper.BindFlags(flags, "INFORMER_OPTS_")
 
 	flags.StringArrayVarP(&watches, "watch", "w", watches, "watch resources, eg. `apiVersion=v1,kind=ConfigMap`")
-	flags.StringVarP(&selector, "selector", "l", os.Getenv("INFORMER_OPTS_SELECTOR"), "selector (label query) to filter on")
+	flags.StringVarP(&labelSelector, "selector", "l", os.Getenv("INFORMER_OPTS_SELECTOR"), "selector (label query) to filter on")
+	flags.StringVar(&fieldSelector, "field-selector", os.Getenv("INFORMER_OPTS_FIELD_SELECTOR"), "selector (field query) to filter on")
 	flags.DurationVar(&resyncDuration, "resync", envToDuration("INFORMER_OPTS_RESYNC", 0), "resync period")
 	flags.StringSliceVarP(&events, "event", "e", events, "handle events")
 	flags.StringVar(&handlerName, "name", os.Getenv("INFORMER_OPTS_NAME"), "handler name")

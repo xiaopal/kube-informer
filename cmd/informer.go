@@ -135,7 +135,7 @@ func apiResource(gvk schema.GroupVersionKind, restMapper *restmapper.DeferredDis
 	return resource, nil
 }
 
-func (i *informer) Watch(apiVersion string, kind string, namespace string, selector string, resync time.Duration) error {
+func (i *informer) Watch(apiVersion string, kind string, namespace string, labelSelector string, fieldSelector string, resync time.Duration) error {
 	resourceClient, resourcePluralName, namespace, err := i.getResourceClient(apiVersion, kind, namespace)
 	if err != nil {
 		return err
@@ -145,7 +145,7 @@ func (i *informer) Watch(apiVersion string, kind string, namespace string, selec
 		informer: i,
 		index:    len(i.watches),
 		watcher: cache.NewSharedIndexInformer(
-			newListWatcherFromResourceClient(resourceClient, selector),
+			newListWatcherFromResourceClient(resourceClient, labelSelector, fieldSelector),
 			&unstructured.Unstructured{},
 			resync,
 			cache.Indexers{},
@@ -160,18 +160,21 @@ func (i *informer) Watch(apiVersion string, kind string, namespace string, selec
 	return nil
 }
 
-func newListWatcherFromResourceClient(resourceClient dynamic.ResourceInterface, labelSelector string) *cache.ListWatch {
-	listFunc := func(options metav1.ListOptions) (runtime.Object, error) {
+func newListWatcherFromResourceClient(resourceClient dynamic.ResourceInterface, labelSelector string, fieldSelector string) *cache.ListWatch {
+	listOptions := func(options metav1.ListOptions) metav1.ListOptions {
 		if labelSelector != "" {
 			options.LabelSelector = labelSelector
 		}
-		return resourceClient.List(options)
+		if fieldSelector != "" {
+			options.FieldSelector = fieldSelector
+		}
+		return options
+	}
+	listFunc := func(options metav1.ListOptions) (runtime.Object, error) {
+		return resourceClient.List(listOptions(options))
 	}
 	watchFunc := func(options metav1.ListOptions) (watch.Interface, error) {
-		if labelSelector != "" {
-			options.LabelSelector = labelSelector
-		}
-		return resourceClient.Watch(options)
+		return resourceClient.Watch(listOptions(options))
 	}
 	return &cache.ListWatch{ListFunc: listFunc, WatchFunc: watchFunc}
 }

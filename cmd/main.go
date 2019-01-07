@@ -20,7 +20,7 @@ func runInformer(ctx context.Context) {
 		RateLimiter: handlerRateLimiter(),
 	})
 	for _, watch := range parsedWatches {
-		err := informer.Watch(watch["apiVersion"], watch["kind"], kubeClient.Namespace(), selector, resyncDuration)
+		err := informer.Watch(watch["apiVersion"], watch["kind"], kubeClient.Namespace(), labelSelector, fieldSelector, resyncDuration)
 		if err != nil {
 			logger.Printf("failed to watch %v: %v", watch, err)
 			return
