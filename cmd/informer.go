@@ -93,7 +93,7 @@ func NewInformer(kubeConfig *rest.Config, opts InformerOpts) Informer {
 
 //Informer interface
 type Informer interface {
-	Watch(apiVersion string, kind string, namespace string, selector string, resync time.Duration) error
+	Watch(apiVersion string, kind string, namespace string, labelSelector string, fieldSelector string, resync time.Duration) error
 	Run(ctx context.Context)
 }
 
@@ -141,7 +141,7 @@ func (i *informer) Watch(apiVersion string, kind string, namespace string, label
 		return err
 	}
 	watch := &informerWatch{
-		name:     fmt.Sprintf("%s/%s %s", namespace, resourcePluralName, selector),
+		name:     fmt.Sprintf("%s/%s %s %s", namespace, resourcePluralName, labelSelector, fieldSelector),
 		informer: i,
 		index:    len(i.watches),
 		watcher: cache.NewSharedIndexInformer(

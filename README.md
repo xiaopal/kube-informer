@@ -8,6 +8,7 @@ bin/kube-informer --watch=apiVersion=v1,kind=Pod -- env
 
 bin/kube-informer --watch=apiVersion=v1,kind=Pod --pass-args -- echo
 bin/kube-informer --watch=apiVersion=v1,kind=Pod --selector='example=true' --pass-stdin -- jq .
+bin/kube-informer --watch=apiVersion=v1,kind=Pod --selector='example=true' --field-selector='status.phase=Running' --pass-stdin -- jq .
 
 bin/kube-informer --watch=apiVersion=v1,kind=ConfigMap --watch=apiVersion=v1,kind=Secret -- env
 bin/kube-informer --watch=apiVersion=v1,kind=ConfigMap:apiVersion=v1,kind=Secret -- env
