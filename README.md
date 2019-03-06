@@ -25,3 +25,17 @@ bash -c 'sleep 1.5s & sleep 1s && echo $INFORMER_EVENT $INFORMER_OBJECT_NAMESPAC
 ```
 docker run -it --rm -v /root:/root xiaopal/kube-informer --watch apiVersion=v1,kind=Pod -- bash -c 'echo $INFORMER_EVENT $INFORMER_OBJECT_NAMESPACE.$INFORMER_OBJECT_NAME'
 ```
+
+# index server
+```
+bin/kube-informer --watch apiVersion=v1,kind=Pod --index-server=:8080 --index namespace='{$.metadata.namespace}'
+
+curl 'http://127.0.0.1:8080/index?key=default/busybox'
+curl 'http://127.0.0.1:8080/index?keys&offset=0&limit=200'
+curl 'http://127.0.0.1:8080/index?list&offset=0&limit=200'
+
+curl 'http://127.0.0.1:8080/index/'
+curl 'http://127.0.0.1:8080/index/namespace?keys&offset=0&limit=200'
+curl 'http://127.0.0.1:8080/index/namespace?key=default&offset=0&limit=200'
+
+```

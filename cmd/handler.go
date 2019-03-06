@@ -19,8 +19,13 @@ func handleEvent(ctx context.Context, event EventType, obj *unstructured.Unstruc
 	if !handlerEvents[event] {
 		return nil
 	}
+	logger := log.New(os.Stderr, fmt.Sprintf("[%s] ", handlerName), log.Flags())
+	if len(handlerCommand) == 0 {
+		logger.Printf("%s %s.%s: name=%s, namespace=%s", event, obj.GetAPIVersion(), obj.GetKind(), obj.GetName(), obj.GetNamespace())
+		return nil
+	}
 	handler := exec.CommandContext(ctx, handlerCommand[0], handlerCommand[1:]...)
-	if err := setupHandler(handler, event, obj, numRetries, handlerMaxRetries); err != nil {
+	if err := setupHandler(handler, event, obj, numRetries, handlerMaxRetries, logger); err != nil {
 		return fmt.Errorf("failed to setup handler: %v", err)
 	}
 	subreaper.Pause()
@@ -39,8 +44,7 @@ func formatTimestamp(time *metav1.Time) string {
 	return ret
 }
 
-func setupHandler(handler *exec.Cmd, event EventType, obj *unstructured.Unstructured, numRetries int, maxRetries int) error {
-	logger := log.New(os.Stderr, fmt.Sprintf("[%s] ", handlerName), log.Flags())
+func setupHandler(handler *exec.Cmd, event EventType, obj *unstructured.Unstructured, numRetries int, maxRetries int, logger *log.Logger) error {
 	creationTime := obj.GetCreationTimestamp()
 	handler.Env = append(os.Environ(),
 		fmt.Sprintf("INFORMER_EVENT=%s", event),

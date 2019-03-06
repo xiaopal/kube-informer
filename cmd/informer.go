@@ -29,6 +29,7 @@ type InformerOpts struct {
 	Handler     func(ctx context.Context, event EventType, obj *unstructured.Unstructured, numRetries int) error
 	MaxRetries  int
 	RateLimiter workqueue.RateLimiter
+	Indexers    cache.Indexers
 }
 
 //EventType type
@@ -45,6 +46,7 @@ const (
 
 type informer struct {
 	InformerOpts
+	active         bool
 	queue          workqueue.RateLimitingInterface
 	deletedObjects objectMap
 	watches        informerWatchList
@@ -95,6 +97,8 @@ func NewInformer(kubeConfig *rest.Config, opts InformerOpts) Informer {
 type Informer interface {
 	Watch(apiVersion string, kind string, namespace string, labelSelector string, fieldSelector string, resync time.Duration) error
 	Run(ctx context.Context)
+	GetIndexer(watchIndex int) (cache.Indexer, bool)
+	Active() bool
 }
 
 func (i *informer) getResourceClient(apiVersion, kind, namespace string) (dynamic.ResourceInterface, string, string, error) {
@@ -148,7 +152,7 @@ func (i *informer) Watch(apiVersion string, kind string, namespace string, label
 			newListWatcherFromResourceClient(resourceClient, labelSelector, fieldSelector),
 			&unstructured.Unstructured{},
 			resync,
-			cache.Indexers{},
+			i.Indexers,
 		),
 	}
 	watch.watcher.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -179,6 +183,17 @@ func newListWatcherFromResourceClient(resourceClient dynamic.ResourceInterface, 
 	return &cache.ListWatch{ListFunc: listFunc, WatchFunc: watchFunc}
 }
 
+func (i *informer) Active() bool {
+	return i.active
+}
+
+func (i *informer) GetIndexer(watchIndex int) (cache.Indexer, bool) {
+	if watchIndex < 0 || watchIndex >= len(i.watches) {
+		return nil, false
+	}
+	return i.watches[watchIndex].watcher.GetIndexer(), true
+}
+
 func (i *informer) Run(ctx context.Context) {
 	defer i.queue.ShutDown()
 	for _, watch := range i.watches {
@@ -190,12 +205,13 @@ func (i *informer) Run(ctx context.Context) {
 			panic("Timed out waiting for caches to sync")
 		}
 	}
+	i.active = true
 	go wait.Until(func() {
 		for i.processNextItem(ctx) {
 		}
 	}, time.Second, ctx.Done())
-
 	<-ctx.Done()
+	i.active = false
 	logger.Printf("stopped all watch")
 }
 

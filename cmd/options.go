@@ -36,6 +36,8 @@ var (
 	handlerMaxRetries            int
 	handlerRetriesBaseDelay      time.Duration
 	handlerRetriesMaxDelay       time.Duration
+	indexServer                  string
+	indexServerIndexes           map[string]string
 	kubeClient                   kubeclient.Client
 	leaderHelper                 leaderelect.Helper
 	initialized                  bool
@@ -52,12 +54,12 @@ func parseWatch(watch string) map[string]string {
 }
 
 func initOptions(cmd *cobra.Command, args []string) (err error) {
-	handlerCommand = args
-	if len(handlerCommand) < 1 {
-		return fmt.Errorf("handlerCommand required")
-	}
-	if handlerName == "" {
-		handlerName = filepath.Base(handlerCommand[0])
+	if handlerCommand = args; len(handlerCommand) > 0 {
+		if handlerName == "" {
+			handlerName = filepath.Base(handlerCommand[0])
+		}
+	} else {
+		handlerName = "event"
 	}
 
 	parsedWatches = []map[string]string{}
@@ -118,7 +120,7 @@ func init() {
 
 	events = []string{string(EventAdd), string(EventUpdate), string(EventDelete)}
 	if envEvents := os.Getenv("INFORMER_OPTS_EVENT"); envEvents != "" {
-		events = strings.Fields(envEvents)
+		events = strings.Split(envEvents, ",")
 	}
 
 	watches = []string{}
@@ -150,6 +152,8 @@ func init() {
 	flags.IntVar(&handlerMaxRetries, "max-retries", envToInt("INFORMER_OPTS_MAX_RETRIES", 15), "handler max retries, -1 for unlimited")
 	flags.DurationVar(&handlerRetriesBaseDelay, "retries-base-delay", envToDuration("INFORMER_OPTS_RETRIES_BASE_DELAY", 5*time.Millisecond), "handler retries: base delay")
 	flags.DurationVar(&handlerRetriesMaxDelay, "retries-max-delay", envToDuration("INFORMER_OPTS_RETRIES_MAX_DELAY", 1000*time.Second), "handler retries: max delay")
+	flags.StringVar(&indexServer, "index-server", indexServer, "index server bind addr, eg. `:8080`")
+	flags.StringToStringVar(&indexServerIndexes, "index", indexServerIndexes, "index server indexs, define as jsonpath template, eg. `namespace='{.metadata.namespace}'`")
 
 	if err := cmd.Execute(); err != nil {
 		logger.Fatal(err)
