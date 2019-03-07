@@ -1,7 +1,7 @@
 package main
 
 import (
-	"context"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,10 +9,12 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
+	"github.com/golang/glog"
 	"github.com/xiaopal/kube-informer/pkg/appctx"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/jsonpath"
 )
 
 const (
@@ -20,6 +22,22 @@ const (
 	locationDefault     = "/index"
 	locationIndexPrefix = "/index/"
 )
+
+func templateIndexer(name string, template string) (func(obj interface{}) ([]string, error), error) {
+	j, logger := jsonpath.New(name),log.New(os.Stderr, fmt.Sprintf("[index %s] ", name), log.Flags())
+	if err := j.Parse(template); err != nil {
+		return nil, err
+	}
+	return func(obj interface{}) ([]string, error) {
+		buf := &bytes.Buffer{}
+		if err := j.Execute(buf, obj.(*unstructured.Unstructured).UnstructuredContent()); err == nil && buf.Len() > 0 {
+			return []string{buf.String()}, nil
+		} else if err != nil && glog.V(3) {
+			logger.Printf("error processing template: error=%v, obj=%v", err, obj)
+		}
+		return []string{}, nil
+	}, nil
+}
 
 func writeJSON(res http.ResponseWriter, statusCode int, data interface{}) error {
 	body, err := json.Marshal(data)
@@ -144,19 +162,14 @@ func startIndexServer(app appctx.Interface, serverAddr string, informer Informer
 		}
 		<-ctx.Done()
 		logger.Printf("Closing %s ...", server.Addr)
-		shutdown, cancel := context.WithTimeout(context.TODO(), time.Second*60)
-		defer cancel()
-		if err := server.Shutdown(shutdown); err != nil {
-			logger.Printf("failed to shutdown server: %v", err)
-			if err = server.Close(); err != nil {
-				logger.Printf("failed to close server: %v", err)
-			}
+		if err := server.Close(); err != nil {
+			logger.Printf("failed to close server: %v", err)
 		}
 	}()
 	go func() {
 		if err := server.ListenAndServe(); err != nil {
 			logger.Printf("server exited: %v", err)
-			app.End()
+			app.EndContext()
 		}
 	}()
 	return nil

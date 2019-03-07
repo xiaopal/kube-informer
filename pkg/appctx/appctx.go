@@ -12,6 +12,7 @@ import (
 //Interface interface
 type Interface interface {
 	Context() context.Context
+	EndContext()
 	End()
 	WaitGroup() *sync.WaitGroup
 }
@@ -26,9 +27,13 @@ func (a *appctx) Context() context.Context {
 	return a.ctx
 }
 
+func (a *appctx) EndContext() {
+	a.endCtx()
+}
+
 func (a *appctx) End() {
 	defer a.wg.Wait()
-	a.endCtx()
+	a.EndContext()
 }
 
 func (a *appctx) WaitGroup() *sync.WaitGroup {

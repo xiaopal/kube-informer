@@ -96,7 +96,7 @@ func NewInformer(kubeConfig *rest.Config, opts InformerOpts) Informer {
 //Informer interface
 type Informer interface {
 	Watch(apiVersion string, kind string, namespace string, labelSelector string, fieldSelector string, resync time.Duration) error
-	Run(ctx context.Context)
+	Run(ctx context.Context) error
 	GetIndexer(watchIndex int) (cache.Indexer, bool)
 	Active() bool
 }
@@ -194,7 +194,7 @@ func (i *informer) GetIndexer(watchIndex int) (cache.Indexer, bool) {
 	return i.watches[watchIndex].watcher.GetIndexer(), true
 }
 
-func (i *informer) Run(ctx context.Context) {
+func (i *informer) Run(ctx context.Context) error {
 	defer i.queue.ShutDown()
 	for _, watch := range i.watches {
 		logger.Printf("watching %s", watch.name)
@@ -202,7 +202,7 @@ func (i *informer) Run(ctx context.Context) {
 	}
 	for _, watch := range i.watches {
 		if !cache.WaitForCacheSync(ctx.Done(), watch.watcher.HasSynced) {
-			panic("Timed out waiting for caches to sync")
+			return fmt.Errorf("wait for caches to sync")
 		}
 	}
 	i.active = true
@@ -213,6 +213,7 @@ func (i *informer) Run(ctx context.Context) {
 	<-ctx.Done()
 	i.active = false
 	logger.Printf("stopped all watch")
+	return nil
 }
 
 func (w *informerWatch) handleAdd(obj interface{}) {

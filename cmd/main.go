@@ -1,15 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"os"
 
 	"github.com/xiaopal/kube-informer/pkg/appctx"
 	"github.com/xiaopal/kube-informer/pkg/subreaper"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/util/jsonpath"
 )
 
 func runInformer(app appctx.Interface) {
@@ -21,7 +18,7 @@ func runInformer(app appctx.Interface) {
 	indexers := cache.Indexers{}
 	if indexServer != "" {
 		for name, template := range indexServerIndexes {
-			if indexers[name], err = jsonpathIndexer(name, template); err != nil {
+			if indexers[name], err = templateIndexer(name, template); err != nil {
 				logger.Printf("failed to parse index %s: %v", name, err)
 				return
 			}
@@ -43,26 +40,9 @@ func runInformer(app appctx.Interface) {
 	if indexServer != "" {
 		startIndexServer(app, indexServer, informer)
 	}
-	ctx := app.Context()
-	informer.Run(ctx)
-	<-ctx.Done()
-}
-
-func jsonpathIndexer(name string, template string) (func(obj interface{}) ([]string, error), error) {
-	j := jsonpath.New(name)
-	if err := j.Parse(template); err != nil {
-		return nil, err
+	if err := informer.Run(app.Context()); err != nil {
+		logger.Printf("informer exited: %v", err)
 	}
-	return func(obj interface{}) ([]string, error) {
-		buf := &bytes.Buffer{}
-		if err := j.Execute(buf, obj.(*unstructured.Unstructured).UnstructuredContent()); err != nil {
-			return []string{}, err
-		}
-		if buf.Len() > 0 {
-			return []string{buf.String()}, nil
-		}
-		return []string{}, nil
-	}, nil
 }
 
 func main() {

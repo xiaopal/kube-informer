@@ -44,7 +44,7 @@ var (
 )
 
 func parseWatch(watch string) map[string]string {
-	opts := map[string]string{}
+	opts := map[string]string{"apiVersion":"v1"}
 	for _, s := range strings.Split(watch, ",") {
 		if opt := strings.SplitN(s, "=", 2); len(opt) == 2 {
 			opts[strings.TrimSpace(opt[0])] = strings.TrimSpace(opt[1])
@@ -109,6 +109,7 @@ func envToDuration(key string, d time.Duration) time.Duration {
 }
 
 func init() {
+	//glog.CopyStandardLogTo("INFO")
 	logger = log.New(os.Stderr, "[kube-informer] ", log.Flags())
 	cmd := &cobra.Command{
 		Use:     fmt.Sprintf("%s [flags] handlerCommand args...", os.Args[0]),
