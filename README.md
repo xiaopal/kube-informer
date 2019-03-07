@@ -28,7 +28,7 @@ docker run -it --rm -v /root:/root xiaopal/kube-informer --watch apiVersion=v1,k
 
 # index server
 ```
-bin/kube-informer --watch apiVersion=v1,kind=Pod --index-server=:8080 --index namespace='{$.metadata.namespace}'
+bin/kube-informer --watch apiVersion=v1,kind=Pod --watch apiVersion=v1,kind=ConfigMap --index-server=:8080 --index namespace='{$.metadata.namespace}'
 
 curl 'http://127.0.0.1:8080/index?key=default/busybox'
 curl 'http://127.0.0.1:8080/index?keys&offset=0&limit=200'
@@ -37,5 +37,7 @@ curl 'http://127.0.0.1:8080/index?list&offset=0&limit=200'
 curl 'http://127.0.0.1:8080/index/'
 curl 'http://127.0.0.1:8080/index/namespace?keys&offset=0&limit=200'
 curl 'http://127.0.0.1:8080/index/namespace?key=default&offset=0&limit=200'
+
+curl 'http://127.0.0.1:8080/index?list&watch=1&offset=0&limit=200'
 
 ```

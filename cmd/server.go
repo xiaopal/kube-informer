@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/xiaopal/kube-informer/pkg/appctx"
 	"k8s.io/client-go/tools/cache"
 )
 
@@ -121,7 +123,8 @@ func handleIndexRequest(res http.ResponseWriter, req *http.Request, informer Inf
 	return writeJSONList(res, req, list, "items")
 }
 
-func startIndexServer(ctx context.Context, serverAddr string, informer Informer, wg *sync.WaitGroup) error {
+func startIndexServer(app appctx.Interface, serverAddr string, informer Informer) error {
+	logger, ctx, wg := log.New(os.Stderr, "[index-server] ", log.Flags()), app.Context(), app.WaitGroup()
 	server, informerHandler := &http.Server{Addr: serverAddr},
 		func(handler func(http.ResponseWriter, *http.Request, Informer) error) func(http.ResponseWriter, *http.Request) {
 			return func(res http.ResponseWriter, req *http.Request) {
@@ -153,6 +156,7 @@ func startIndexServer(ctx context.Context, serverAddr string, informer Informer,
 	go func() {
 		if err := server.ListenAndServe(); err != nil {
 			logger.Printf("server exited: %v", err)
+			app.End()
 		}
 	}()
 	return nil

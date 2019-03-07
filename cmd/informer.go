@@ -253,7 +253,7 @@ func (i *informer) processNextItem(ctx context.Context) bool {
 	if err == nil {
 		if !exists {
 			if _, ok := i.deletedObjects[eventKey.objectKey]; !ok {
-				logger.Printf("no last known state found for (%v)", eventKey)
+				//logger.Printf("no last known state found for (%v)", eventKey)
 				i.queue.Forget(item)
 				return true
 			}

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"os"
-	"sync"
 
 	"github.com/xiaopal/kube-informer/pkg/appctx"
 	"github.com/xiaopal/kube-informer/pkg/subreaper"
@@ -13,7 +12,7 @@ import (
 	"k8s.io/client-go/util/jsonpath"
 )
 
-func runInformer(ctx context.Context, wg *sync.WaitGroup) {
+func runInformer(app appctx.Interface) {
 	config, err := kubeClient.GetConfig()
 	if err != nil {
 		logger.Printf("failed to get config: %v", err)
@@ -42,8 +41,9 @@ func runInformer(ctx context.Context, wg *sync.WaitGroup) {
 		}
 	}
 	if indexServer != "" {
-		startIndexServer(ctx, indexServer, informer, wg)
+		startIndexServer(app, indexServer, informer)
 	}
+	ctx := app.Context()
 	informer.Run(ctx)
 	<-ctx.Done()
 }
@@ -73,6 +73,6 @@ func main() {
 		subreaper.Start(app.Context())
 	}
 	leaderHelper.Run(app.Context(), func(ctx context.Context) {
-		runInformer(app.Context(), app.WaitGroup())
+		runInformer(app)
 	})
 }

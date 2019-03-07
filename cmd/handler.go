@@ -21,7 +21,7 @@ func handleEvent(ctx context.Context, event EventType, obj *unstructured.Unstruc
 	}
 	logger := log.New(os.Stderr, fmt.Sprintf("[%s] ", handlerName), log.Flags())
 	if len(handlerCommand) == 0 {
-		logger.Printf("%s %s.%s: name=%s, namespace=%s", event, obj.GetAPIVersion(), obj.GetKind(), obj.GetName(), obj.GetNamespace())
+		logger.Printf("%s %s.%s: %s/%s", event, obj.GetAPIVersion(), obj.GetKind(), obj.GetNamespace(), obj.GetName())
 		return nil
 	}
 	handler := exec.CommandContext(ctx, handlerCommand[0], handlerCommand[1:]...)
