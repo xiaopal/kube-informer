@@ -30,7 +30,7 @@ func runInformer(app appctx.Interface) {
 		RateLimiter: handlerRateLimiter(),
 		Indexers:    indexers,
 	})
-	for _, watch := range parsedWatches {
+	for _, watch := range watches {
 		err := informer.Watch(watch["apiVersion"], watch["kind"], kubeClient.Namespace(), labelSelector, fieldSelector, resyncDuration)
 		if err != nil {
 			logger.Printf("failed to watch %v: %v", watch, err)

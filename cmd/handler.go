@@ -7,9 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 
+	"github.com/golang/glog"
 	"github.com/xiaopal/kube-informer/pkg/subreaper"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -19,13 +22,57 @@ func handleEvent(ctx context.Context, event EventType, obj *unstructured.Unstruc
 	if !handlerEvents[event] {
 		return nil
 	}
-	logger := log.New(os.Stderr, fmt.Sprintf("[%s] ", handlerName), log.Flags())
-	if len(handlerCommand) == 0 {
-		logger.Printf("%s %s.%s: %s/%s", event, obj.GetAPIVersion(), obj.GetKind(), obj.GetNamespace(), obj.GetName())
-		return nil
+	objJSON, err := json.Marshal(obj)
+	if err != nil {
+		return fmt.Errorf("failed to marshal obj: %v", err)
 	}
+	logger := log.New(os.Stderr, fmt.Sprintf("[%s] ", handlerName), log.Flags())
+	if len(handlerCommand) > 0 {
+		if err := executeHandlerCommand(ctx, event, obj, objJSON, numRetries, logger); err != nil {
+			return err
+		}
+	} else {
+		logger.Printf("%s %s.%s: %s/%s", event, obj.GetAPIVersion(), obj.GetKind(), obj.GetNamespace(), obj.GetName())
+	}
+	if len(webhooks) > 0 {
+		if err := executeWebhooks(ctx, event, obj, objJSON, numRetries, logger); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func webhookURL(webhook *url.URL, event EventType) string {
+	u, q := &url.URL{}, webhook.Query()
+	q.Set("event", string(event))
+	*u = *webhook
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func executeWebhooks(ctx context.Context, event EventType, obj *unstructured.Unstructured, objJSON []byte, numRetries int, logger *log.Logger) error {
+	for _, webhook := range webhooks {
+		reqURL := webhookURL(webhook, event)
+		req, err := http.NewRequest("POST", reqURL, bytes.NewReader(objJSON))
+		if err != nil {
+			return fmt.Errorf("failed to prepare webhook %s: %v", reqURL, err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		reqCtx, endReq := context.WithTimeout(ctx, webhookTimeout)
+		defer endReq()
+		if res, err := http.DefaultClient.Do(req.WithContext(reqCtx)); err != nil {
+			return fmt.Errorf("failed to process webhook %s: %v", reqURL, err)
+		} else if res.StatusCode < 200 || res.StatusCode >= 300 {
+			return fmt.Errorf("failed to process webhook %s: HTTP %s", reqURL, res.Status)
+		} else if glog.V(2) {
+			logger.Printf("triggerred webhook %s, %s %s.%s: %s/%s", reqURL, event, obj.GetAPIVersion(), obj.GetKind(), obj.GetNamespace(), obj.GetName())
+		}
+	}
+	return nil
+}
+func executeHandlerCommand(ctx context.Context, event EventType, obj *unstructured.Unstructured, objJSON []byte, numRetries int, logger *log.Logger) error {
 	handler := exec.CommandContext(ctx, handlerCommand[0], handlerCommand[1:]...)
-	if err := setupHandler(handler, event, obj, numRetries, handlerMaxRetries, logger); err != nil {
+	if err := setupHandler(handler, event, obj, objJSON, numRetries, handlerMaxRetries, logger); err != nil {
 		return fmt.Errorf("failed to setup handler: %v", err)
 	}
 	subreaper.Pause()
@@ -44,7 +91,7 @@ func formatTimestamp(time *metav1.Time) string {
 	return ret
 }
 
-func setupHandler(handler *exec.Cmd, event EventType, obj *unstructured.Unstructured, numRetries int, maxRetries int, logger *log.Logger) error {
+func setupHandler(handler *exec.Cmd, event EventType, obj *unstructured.Unstructured, objJSON []byte, numRetries int, maxRetries int, logger *log.Logger) error {
 	creationTime := obj.GetCreationTimestamp()
 	handler.Env = append(os.Environ(),
 		fmt.Sprintf("INFORMER_EVENT=%s", event),
@@ -58,18 +105,14 @@ func setupHandler(handler *exec.Cmd, event EventType, obj *unstructured.Unstruct
 		fmt.Sprintf("INFORMER_DELETION_TIMESTAMP=%s", formatTimestamp(obj.GetDeletionTimestamp())),
 		fmt.Sprintf("INFORMER_CREATION_TIMESTAMP=%s", formatTimestamp(&creationTime)),
 	)
-	jsonObj, err := json.Marshal(obj)
-	if err != nil {
-		return fmt.Errorf("failed to marshal obj: %v", err)
-	}
 	if handlerPassEnv {
-		handler.Env = append(handler.Env, fmt.Sprintf("INFORMER_OBJECT=%s", string(jsonObj)))
+		handler.Env = append(handler.Env, fmt.Sprintf("INFORMER_OBJECT=%s", string(objJSON)))
 	}
 	if handlerPassArgs {
-		handler.Args = append(handler.Args, string(event), string(jsonObj))
+		handler.Args = append(handler.Args, string(event), string(objJSON))
 	}
 	if handlerPassStdin {
-		handler.Stdin = bytes.NewReader(jsonObj)
+		handler.Stdin = bytes.NewReader(objJSON)
 	}
 	if err := pipeStderr(handler, logger); err != nil {
 		return fmt.Errorf("failed to pipe stderr: %v", err)
