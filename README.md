@@ -41,3 +41,9 @@ curl 'http://127.0.0.1:8080/index/namespace?key=default&offset=0&limit=200'
 curl 'http://127.0.0.1:8080/index?list&watch=1&offset=0&limit=200'
 
 ```
+
+# webhook
+```
+bin/kube-informer --watch=apiVersion=v1,kind=Pod --webhook http://127.0.0.1:8888/webhook
+
+```
