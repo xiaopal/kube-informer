@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,11 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/golang/glog"
 	"github.com/xiaopal/kube-informer/pkg/appctx"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/util/jsonpath"
 )
 
 const (
@@ -22,22 +18,6 @@ const (
 	locationDefault     = "/index"
 	locationIndexPrefix = "/index/"
 )
-
-func templateIndexer(name string, template string) (func(obj interface{}) ([]string, error), error) {
-	j, logger := jsonpath.New(name),log.New(os.Stderr, fmt.Sprintf("[index %s] ", name), log.Flags())
-	if err := j.Parse(template); err != nil {
-		return nil, err
-	}
-	return func(obj interface{}) ([]string, error) {
-		buf := &bytes.Buffer{}
-		if err := j.Execute(buf, obj.(*unstructured.Unstructured).UnstructuredContent()); err == nil && buf.Len() > 0 {
-			return []string{buf.String()}, nil
-		} else if err != nil && glog.V(3) {
-			logger.Printf("error processing template: error=%v, obj=%v", err, obj)
-		}
-		return []string{}, nil
-	}, nil
-}
 
 func writeJSON(res http.ResponseWriter, statusCode int, data interface{}) error {
 	body, err := json.Marshal(data)

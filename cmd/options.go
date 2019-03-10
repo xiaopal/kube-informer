@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/golang/glog"
 	"github.com/spf13/cobra"
 
 	"time"
@@ -18,6 +20,9 @@ import (
 	"github.com/xiaopal/kube-informer/pkg/leaderelect"
 
 	"golang.org/x/time/rate"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/jsonpath"
 	"k8s.io/client-go/util/workqueue"
 )
 
@@ -30,6 +35,8 @@ var (
 	handlerCommand               []string
 	webhooks                     []*url.URL
 	webhookTimeout               = 30 * time.Second
+	webhookPayload               = true
+	webhookParams                = map[string]func(obj *unstructured.Unstructured) (string, error){}
 	handlerName                  string
 	handlerPassStdin             bool
 	handlerPassEnv               bool
@@ -38,7 +45,7 @@ var (
 	handlerRetriesBaseDelay      time.Duration
 	handlerRetriesMaxDelay       time.Duration
 	indexServer                  string
-	indexServerIndexes           map[string]string
+	indexServerIndexers          = cache.Indexers{}
 	kubeClient                   kubeclient.Client
 	leaderHelper                 leaderelect.Helper
 )
@@ -79,13 +86,44 @@ func envToDuration(key string, d time.Duration) time.Duration {
 	return d
 }
 
+func objectJSONPath(name, template string) (func(*unstructured.Unstructured) (string, error), error) {
+	j := jsonpath.New(name)
+	if err := j.Parse(template); err != nil {
+		return nil, err
+	}
+	return func(obj *unstructured.Unstructured) (string, error) {
+		buf := &bytes.Buffer{}
+		if err := j.Execute(buf, obj.UnstructuredContent()); err != nil {
+			return "", err
+		}
+		return buf.String(), nil
+	}, nil
+}
+
+func objectIndexer(name string, template string) (func(obj interface{}) ([]string, error), error) {
+	keyFunc, err := objectJSONPath(name, template)
+	if err != nil {
+		return nil, err
+	}
+	logger := log.New(os.Stderr, fmt.Sprintf("[index %s] ", name), log.Flags())
+	return func(obj interface{}) ([]string, error) {
+		if key, err := keyFunc(obj.(*unstructured.Unstructured)); err == nil && len(key) > 0 {
+			return []string{key}, nil
+		} else if err != nil && glog.V(3) {
+			logger.Printf("error processing template: error=%v, obj=%v", err, obj)
+		}
+		return []string{}, nil
+	}, nil
+}
+
 func init() {
 	//glog.CopyStandardLogTo("INFO")
 	logger = log.New(os.Stderr, "[kube-informer] ", log.Flags())
 
-	argWatches, argEvents, argWebhooks := []string{},
+	argWatches, argEvents, argWebhooks, argWebhookParams, argIndexes := []string{},
 		[]string{string(EventAdd), string(EventUpdate), string(EventDelete)},
-		[]string{}
+		[]string{}, map[string]string{},
+		map[string]string{}
 	initOpts, checkOpts := func(cmd *cobra.Command) {
 		flags := cmd.Flags()
 		flags.AddGoFlagSet(flag.CommandLine)
@@ -113,6 +151,8 @@ func init() {
 		flags.StringVar(&handlerName, "name", os.Getenv("INFORMER_OPTS_NAME"), "handler name")
 		flags.StringArrayVar(&argWebhooks, "webhook", argWebhooks, "define handler webhook")
 		flags.DurationVar(&webhookTimeout, "webhook-timeout", webhookTimeout, "handler webhook timeout")
+		flags.BoolVar(&webhookPayload, "webhook-payload", webhookPayload, "post object data to handler webhook")
+		flags.StringToStringVar(&argWebhookParams, "webhook-param", argWebhookParams, "pass query param to handler webhook,define as jsonpath template, eg. `obj-name='{.metadata.name}'`")
 		flags.BoolVar(&handlerPassStdin, "pass-stdin", os.Getenv("INFORMER_OPTS_PASS_STDIN") != "", "pass obj json to handler stdin")
 		flags.BoolVar(&handlerPassEnv, "pass-env", os.Getenv("INFORMER_OPTS_PASS_ENV") != "", "pass obj json to handler env INFORMER_OBJECT")
 		flags.BoolVar(&handlerPassArgs, "pass-args", os.Getenv("INFORMER_OPTS_PASS_ARGS") != "", "pass event and obj json to handler arg")
@@ -120,7 +160,7 @@ func init() {
 		flags.DurationVar(&handlerRetriesBaseDelay, "retries-base-delay", envToDuration("INFORMER_OPTS_RETRIES_BASE_DELAY", 5*time.Millisecond), "handler retries: base delay")
 		flags.DurationVar(&handlerRetriesMaxDelay, "retries-max-delay", envToDuration("INFORMER_OPTS_RETRIES_MAX_DELAY", 1000*time.Second), "handler retries: max delay")
 		flags.StringVar(&indexServer, "index-server", indexServer, "index server bind addr, eg. `:8080`")
-		flags.StringToStringVar(&indexServerIndexes, "index", indexServerIndexes, "index server indexs, define as jsonpath template, eg. `namespace='{.metadata.namespace}'`")
+		flags.StringToStringVar(&argIndexes, "index", argIndexes, "index server indexs, define as jsonpath template, eg. `namespace='{.metadata.namespace}'`")
 	}, func(cmd *cobra.Command, args []string) (err error) {
 		if handlerName == "" {
 			if handlerCommand = args; len(handlerCommand) > 0 {
@@ -151,6 +191,20 @@ func init() {
 				return fmt.Errorf("error to parse webhook %s: %v", webhook, err)
 			}
 			webhooks = append(webhooks, webhookURL)
+		}
+
+		if indexServer != "" {
+			for name, template := range argIndexes {
+				if indexServerIndexers[name], err = objectIndexer(name, template); err != nil {
+					return fmt.Errorf("failed to parse index %s: %v", name, err)
+				}
+			}
+		}
+
+		for param, template := range argWebhookParams {
+			if webhookParams[param], err = objectJSONPath(param, template); err != nil {
+				return fmt.Errorf("failed to parse webhook param %s: %v", param, err)
+			}
 		}
 
 		return nil

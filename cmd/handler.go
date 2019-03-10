@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 
 	"github.com/golang/glog"
 	"github.com/xiaopal/kube-informer/pkg/subreaper"
@@ -42,30 +43,45 @@ func handleEvent(ctx context.Context, event EventType, obj *unstructured.Unstruc
 	return nil
 }
 
-func webhookURL(webhook *url.URL, event EventType) string {
-	u, q := &url.URL{}, webhook.Query()
+func webhookRequest(webhookBase *url.URL, event EventType, obj *unstructured.Unstructured, objJSON []byte, numRetries int, logger *log.Logger) (*http.Request, error) {
+	webhook, q := &url.URL{}, webhookBase.Query()
 	q.Set("event", string(event))
-	*u = *webhook
-	u.RawQuery = q.Encode()
-	return u.String()
+	if numRetries > 0 {
+		q.Set("retries", strconv.Itoa(numRetries))
+	}
+	for param, valFunc := range webhookParams {
+		if val, err := valFunc(obj); err == nil {
+			q.Set(param, val)
+		} else if err != nil && glog.V(3) {
+			logger.Printf("error processing param: error=%v, obj=%v", err, obj)
+		}
+	}
+	*webhook = *webhookBase
+	webhook.RawQuery = q.Encode()
+	if !webhookPayload {
+		return http.NewRequest("GET", webhook.String(), nil)
+	}
+	req, err := http.NewRequest("POST", webhook.String(), bytes.NewReader(objJSON))
+	if err == nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return req, err
 }
 
 func executeWebhooks(ctx context.Context, event EventType, obj *unstructured.Unstructured, objJSON []byte, numRetries int, logger *log.Logger) error {
 	for _, webhook := range webhooks {
-		reqURL := webhookURL(webhook, event)
-		req, err := http.NewRequest("POST", reqURL, bytes.NewReader(objJSON))
+		req, err := webhookRequest(webhook, event, obj, objJSON, numRetries, logger)
 		if err != nil {
-			return fmt.Errorf("failed to prepare webhook %s: %v", reqURL, err)
+			return fmt.Errorf("failed to prepare webhook: %v", err)
 		}
-		req.Header.Set("Content-Type", "application/json")
 		reqCtx, endReq := context.WithTimeout(ctx, webhookTimeout)
 		defer endReq()
 		if res, err := http.DefaultClient.Do(req.WithContext(reqCtx)); err != nil {
-			return fmt.Errorf("failed to process webhook %s: %v", reqURL, err)
+			return fmt.Errorf("failed to process webhook %s: %v", req.URL.String(), err)
 		} else if res.StatusCode < 200 || res.StatusCode >= 300 {
-			return fmt.Errorf("failed to process webhook %s: HTTP %s", reqURL, res.Status)
+			return fmt.Errorf("failed to process webhook %s: HTTP %s", req.URL.String(), res.Status)
 		} else if glog.V(2) {
-			logger.Printf("triggerred webhook %s, %s %s.%s: %s/%s", reqURL, event, obj.GetAPIVersion(), obj.GetKind(), obj.GetNamespace(), obj.GetName())
+			logger.Printf("triggerred webhook %s, %s %s.%s: %s/%s", req.URL.String(), event, obj.GetAPIVersion(), obj.GetKind(), obj.GetNamespace(), obj.GetName())
 		}
 	}
 	return nil

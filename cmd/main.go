@@ -6,7 +6,6 @@ import (
 
 	"github.com/xiaopal/kube-informer/pkg/appctx"
 	"github.com/xiaopal/kube-informer/pkg/subreaper"
-	"k8s.io/client-go/tools/cache"
 )
 
 func runInformer(app appctx.Interface) {
@@ -15,20 +14,11 @@ func runInformer(app appctx.Interface) {
 		logger.Printf("failed to get config: %v", err)
 		return
 	}
-	indexers := cache.Indexers{}
-	if indexServer != "" {
-		for name, template := range indexServerIndexes {
-			if indexers[name], err = templateIndexer(name, template); err != nil {
-				logger.Printf("failed to parse index %s: %v", name, err)
-				return
-			}
-		}
-	}
 	informer := NewInformer(config, InformerOpts{
 		Handler:     handleEvent,
 		MaxRetries:  handlerMaxRetries,
 		RateLimiter: handlerRateLimiter(),
-		Indexers:    indexers,
+		Indexers:    indexServerIndexers,
 	})
 	for _, watch := range watches {
 		err := informer.Watch(watch["apiVersion"], watch["kind"], kubeClient.Namespace(), labelSelector, fieldSelector, resyncDuration)
