@@ -49,6 +49,7 @@ var (
 	handlerRetriesMaxDelay       time.Duration
 	indexServer                  string
 	indexServerIndexers          = cache.Indexers{}
+	templateDelims               = []string{"{{", "}}"}
 	kubeClient                   kubeclient.Client
 	leaderHelper                 leaderelect.Helper
 )
@@ -90,7 +91,7 @@ func envToDuration(key string, d time.Duration) time.Duration {
 }
 
 func objectTemplate(name, tmplText string) (func(*unstructured.Unstructured) (string, error), error) {
-	tmpl, err := template.New(name).Funcs(sprig.TxtFuncMap()).Parse(tmplText)
+	tmpl, err := template.New(name).Delims(templateDelims[0], templateDelims[1]).Funcs(sprig.TxtFuncMap()).Parse(tmplText)
 	if err != nil {
 		return nil, err
 	}
@@ -169,6 +170,7 @@ func init() {
 		flags.DurationVar(&handlerRetriesMaxDelay, "retries-max-delay", envToDuration("INFORMER_OPTS_RETRIES_MAX_DELAY", 1000*time.Second), "handler retries: max delay")
 		flags.StringVar(&indexServer, "index-server", indexServer, "index server bind addr, eg. `:8080`")
 		flags.StringToStringVar(&argIndexes, "index", argIndexes, "index server indexs, define as go template(with sprig funcs), eg. `namespace='{{.metadata.namespace}}'`")
+		flags.StringSliceVar(&templateDelims, "template-delims", templateDelims, "go template delims")
 	}, func(cmd *cobra.Command, args []string) (err error) {
 		if handlerName == "" {
 			if handlerCommand = args; len(handlerCommand) > 0 {
@@ -191,6 +193,10 @@ func init() {
 
 		for _, event := range argEvents {
 			handlerEvents[EventType(event)] = true
+		}
+
+		if len(templateDelims) != 2 {
+			return fmt.Errorf("invalid --template-delims")
 		}
 
 		if argWhen != "" {
