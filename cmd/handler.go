@@ -23,6 +23,16 @@ func handleEvent(ctx context.Context, event EventType, obj *unstructured.Unstruc
 	if !handlerEvents[event] {
 		return nil
 	}
+	if handlerWhen != nil {
+		if cond, err := handlerWhen(obj); err != nil {
+			if glog.V(2) {
+				logger.Printf("error to execute handler condition: %v", err)
+			}
+			return nil
+		} else if cond == "" {
+			return nil
+		}
+	}
 	objJSON, err := json.Marshal(obj)
 	if err != nil {
 		return fmt.Errorf("failed to marshal obj: %v", err)

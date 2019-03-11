@@ -39,6 +39,7 @@ var (
 	webhookTimeout               = 30 * time.Second
 	webhookPayload               = true
 	webhookParams                = map[string]func(obj *unstructured.Unstructured) (string, error){}
+	handlerWhen                  func(obj *unstructured.Unstructured) (string, error)
 	handlerName                  string
 	handlerPassStdin             bool
 	handlerPassEnv               bool
@@ -125,10 +126,11 @@ func init() {
 	//glog.CopyStandardLogTo("INFO")
 	logger = log.New(os.Stderr, "[kube-informer] ", log.Flags())
 
-	argWatches, argEvents, argWebhooks, argWebhookParams, argIndexes := []string{},
+	argWatches, argEvents, argWebhooks, argWebhookParams, argIndexes, argWhen := []string{},
 		[]string{string(EventAdd), string(EventUpdate), string(EventDelete)},
 		[]string{}, map[string]string{},
-		map[string]string{}
+		map[string]string{},
+		""
 	initOpts, checkOpts := func(cmd *cobra.Command) {
 		flags := cmd.Flags()
 		flags.AddGoFlagSet(flag.CommandLine)
@@ -154,6 +156,7 @@ func init() {
 		flags.DurationVar(&resyncDuration, "resync", envToDuration("INFORMER_OPTS_RESYNC", 0), "resync period")
 		flags.StringSliceVarP(&argEvents, "event", "e", argEvents, "handle events")
 		flags.StringVar(&handlerName, "name", os.Getenv("INFORMER_OPTS_NAME"), "handler name")
+		flags.StringVar(&argWhen, "when", argWhen, "handler condition, define as go template(with sprig funcs)")
 		flags.StringArrayVar(&argWebhooks, "webhook", argWebhooks, "define handler webhook")
 		flags.DurationVar(&webhookTimeout, "webhook-timeout", webhookTimeout, "handler webhook timeout")
 		flags.BoolVar(&webhookPayload, "webhook-payload", webhookPayload, "post object data to handler webhook")
@@ -188,6 +191,12 @@ func init() {
 
 		for _, event := range argEvents {
 			handlerEvents[EventType(event)] = true
+		}
+
+		if argWhen != "" {
+			if handlerWhen, err = objectTemplate("when", argWhen); err != nil {
+				return fmt.Errorf("error to parse handler condition %s: %v", argWhen, err)
+			}
 		}
 
 		for _, webhook := range argWebhooks {
