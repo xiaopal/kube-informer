@@ -3,13 +3,10 @@ package informer
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 
-	"github.com/xiaopal/kube-informer/pkg/appctx"
 	"k8s.io/client-go/tools/cache"
 )
 
@@ -121,7 +118,7 @@ func handleIndexRequest(res http.ResponseWriter, req *http.Request, informer Inf
 	return writeJSONList(res, req, list, "items")
 }
 
-func (i *informer) EnableIndexServer(serverAddr string) Informer {
+func (i *informer) EnableIndexServer(serverAddr string) *http.ServeMux {
 	serverMux, informerHandler := http.NewServeMux(), func(handler func(http.ResponseWriter, *http.Request, Informer) error) func(http.ResponseWriter, *http.Request) {
 		return func(res http.ResponseWriter, req *http.Request) {
 			if err := handler(res, req, i); err != nil {
@@ -133,39 +130,5 @@ func (i *informer) EnableIndexServer(serverAddr string) Informer {
 	serverMux.HandleFunc(locationDefault, informerHandler(handleDefaultRequest))
 	serverMux.HandleFunc(locationIndexPrefix, informerHandler(handleIndexRequest))
 	i.indexServer = &http.Server{Addr: serverAddr, Handler: serverMux}
-	return i
-}
-
-func startIndexServer(app appctx.Interface, serverAddr string, informer Informer) error {
-	logger, ctx, wg := log.New(os.Stderr, "[index-server] ", log.Flags()), app.Context(), app.WaitGroup()
-	server, informerHandler := &http.Server{Addr: serverAddr},
-		func(handler func(http.ResponseWriter, *http.Request, Informer) error) func(http.ResponseWriter, *http.Request) {
-			return func(res http.ResponseWriter, req *http.Request) {
-				if err := handler(res, req, informer); err != nil {
-					writeJSON(res, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-				}
-			}
-		}
-	http.HandleFunc(locationHealth, informerHandler(handleHealthRequest))
-	http.HandleFunc(locationDefault, informerHandler(handleDefaultRequest))
-	http.HandleFunc(locationIndexPrefix, informerHandler(handleIndexRequest))
-	logger.Printf("Serving %s ...", server.Addr)
-	go func() {
-		if wg != nil {
-			wg.Add(1)
-			defer wg.Done()
-		}
-		<-ctx.Done()
-		logger.Printf("Closing %s ...", server.Addr)
-		if err := server.Close(); err != nil {
-			logger.Printf("failed to close server: %v", err)
-		}
-	}()
-	go func() {
-		if err := server.ListenAndServe(); err != nil {
-			logger.Printf("server exited: %v", err)
-			app.EndContext()
-		}
-	}()
-	return nil
+	return serverMux
 }

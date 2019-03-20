@@ -131,7 +131,7 @@ type Informer interface {
 	GetIndexer(watchIndex int) (cache.Indexer, bool)
 	Active() bool
 	Run(ctx context.Context) error
-	EnableIndexServer(serverAddr string) Informer
+	EnableIndexServer(serverAddr string) *http.ServeMux
 }
 
 func (i *informer) getResourceClient(apiVersion, kind, namespace string) (dynamic.ResourceInterface, string, string, error) {
