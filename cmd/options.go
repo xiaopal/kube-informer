@@ -16,16 +16,15 @@ import (
 
 	"time"
 
+	"github.com/xiaopal/kube-informer/pkg/informer"
 	"github.com/xiaopal/kube-informer/pkg/kubeclient"
 	"github.com/xiaopal/kube-informer/pkg/leaderelect"
 
 	"text/template"
 
 	"github.com/Masterminds/sprig"
-	"golang.org/x/time/rate"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/util/workqueue"
 )
 
 var (
@@ -33,7 +32,7 @@ var (
 	watches                      = []map[string]string{}
 	labelSelector, fieldSelector string
 	resyncDuration               time.Duration
-	handlerEvents                = map[EventType]bool{}
+	handlerEvents                = map[informer.EventType]bool{}
 	handlerCommand               []string
 	webhooks                     []*url.URL
 	webhookTimeout               = 30 * time.Second
@@ -45,6 +44,8 @@ var (
 	handlerPassEnv               bool
 	handlerPassArgs              bool
 	handlerMaxRetries            int
+	handlerLimitRate             float64
+	handlerLimitBursts           int
 	handlerRetriesBaseDelay      time.Duration
 	handlerRetriesMaxDelay       time.Duration
 	indexServer                  string
@@ -62,14 +63,6 @@ func parseWatch(watch string) map[string]string {
 		}
 	}
 	return opts
-}
-
-func handlerRateLimiter() workqueue.RateLimiter {
-	return workqueue.NewMaxOfRateLimiter(
-		workqueue.NewItemExponentialFailureRateLimiter(5*time.Millisecond, 1000*time.Second),
-		// 10 qps, 100 bucket size.  This is only for retry speed and its only the overall factor (not per item)
-		&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
-	)
 }
 
 func envToInt(key string, d int) int {
@@ -123,12 +116,12 @@ func objectIndexer(name string, template string) (func(obj interface{}) ([]strin
 	}, nil
 }
 
-func init() {
+func bindOptions(mainProc func()) *cobra.Command {
 	//glog.CopyStandardLogTo("INFO")
 	logger = log.New(os.Stderr, "[kube-informer] ", log.Flags())
 
 	argWatches, argEvents, argWebhooks, argWebhookParams, argIndexes, argWhen := []string{},
-		[]string{string(EventAdd), string(EventUpdate), string(EventDelete)},
+		[]string{string(informer.EventAdd), string(informer.EventUpdate), string(informer.EventDelete)},
 		[]string{}, map[string]string{},
 		map[string]string{},
 		""
@@ -168,6 +161,8 @@ func init() {
 		flags.IntVar(&handlerMaxRetries, "max-retries", envToInt("INFORMER_OPTS_MAX_RETRIES", 15), "handler max retries, -1 for unlimited")
 		flags.DurationVar(&handlerRetriesBaseDelay, "retries-base-delay", envToDuration("INFORMER_OPTS_RETRIES_BASE_DELAY", 5*time.Millisecond), "handler retries: base delay")
 		flags.DurationVar(&handlerRetriesMaxDelay, "retries-max-delay", envToDuration("INFORMER_OPTS_RETRIES_MAX_DELAY", 1000*time.Second), "handler retries: max delay")
+		flags.Float64Var(&handlerLimitRate, "limit-rate", 10, "handler limit: rate per second")
+		flags.IntVar(&handlerLimitBursts, "limit-bursts", 100, "handler limit: bursts")
 		flags.StringVar(&indexServer, "index-server", indexServer, "index server bind addr, eg. `:8080`")
 		flags.StringToStringVar(&argIndexes, "index", argIndexes, "index server indexs, define as go template(with sprig funcs), eg. `namespace='{{.metadata.namespace}}'`")
 		flags.StringSliceVar(&templateDelims, "template-delims", templateDelims, "go template delims")
@@ -192,7 +187,7 @@ func init() {
 		}
 
 		for _, event := range argEvents {
-			handlerEvents[EventType(event)] = true
+			handlerEvents[informer.EventType(event)] = true
 		}
 
 		if len(templateDelims) != 2 {
@@ -230,19 +225,13 @@ func init() {
 		return nil
 	}
 
-	initialized := false
 	cmd := &cobra.Command{
 		Use:     fmt.Sprintf("%s [flags] handlerCommand args...", os.Args[0]),
 		PreRunE: checkOpts,
 		Run: func(cmd *cobra.Command, args []string) {
-			initialized = true
+			mainProc()
 		},
 	}
 	initOpts(cmd)
-	if err := cmd.Execute(); err != nil {
-		logger.Fatal(err)
-	}
-	if !initialized {
-		os.Exit(0)
-	}
+	return cmd
 }

@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/xiaopal/kube-informer/pkg/appctx"
+	"github.com/xiaopal/kube-informer/pkg/informer"
 	"github.com/xiaopal/kube-informer/pkg/subreaper"
 )
 
@@ -14,35 +15,42 @@ func runInformer(app appctx.Interface) {
 		logger.Printf("failed to get config: %v", err)
 		return
 	}
-	informer := NewInformer(config, InformerOpts{
+	i := informer.NewInformer(config, informer.Opts{
+		Logger:      logger,
 		Handler:     handleEvent,
 		MaxRetries:  handlerMaxRetries,
-		RateLimiter: handlerRateLimiter(),
+		RateLimiter: informer.DefaultRateLimiter(handlerRetriesBaseDelay, handlerRetriesMaxDelay, handlerLimitRate, handlerLimitBursts),
 		Indexers:    indexServerIndexers,
 	})
 	for _, watch := range watches {
-		err := informer.Watch(watch["apiVersion"], watch["kind"], kubeClient.Namespace(), labelSelector, fieldSelector, resyncDuration)
+		err := i.Watch(watch["apiVersion"], watch["kind"], kubeClient.Namespace(), labelSelector, fieldSelector, resyncDuration)
 		if err != nil {
 			logger.Printf("failed to watch %v: %v", watch, err)
 			return
 		}
 	}
 	if indexServer != "" {
-		startIndexServer(app, indexServer, informer)
+		i.EnableIndexServer(indexServer)
 	}
-	if err := informer.Run(app.Context()); err != nil {
+	if err := i.Run(app.Context()); err != nil {
 		logger.Printf("informer exited: %v", err)
 	}
 }
 
 func main() {
-	app := appctx.Start()
-	defer app.End()
+	cmd := bindOptions(func() {
+		app := appctx.Start()
+		defer app.End()
 
-	if os.Getpid() == 1 {
-		subreaper.Start(app.Context())
-	}
-	leaderHelper.Run(app.Context(), func(ctx context.Context) {
-		runInformer(app)
+		if os.Getpid() == 1 {
+			subreaper.Start(app.Context())
+		}
+		leaderHelper.Run(app.Context(), func(ctx context.Context) {
+			runInformer(app)
+		})
 	})
+
+	if err := cmd.Execute(); err != nil {
+		logger.Fatal(err)
+	}
 }

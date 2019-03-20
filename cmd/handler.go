@@ -14,12 +14,14 @@ import (
 	"strconv"
 
 	"github.com/golang/glog"
+	"github.com/xiaopal/kube-informer/pkg/informer"
 	"github.com/xiaopal/kube-informer/pkg/subreaper"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-func handleEvent(ctx context.Context, event EventType, obj *unstructured.Unstructured, numRetries int) error {
+func handleEvent(ctx context.Context, event informer.EventType, obj *unstructured.Unstructured, numRetries int) error {
 	if !handlerEvents[event] {
 		return nil
 	}
@@ -53,7 +55,7 @@ func handleEvent(ctx context.Context, event EventType, obj *unstructured.Unstruc
 	return nil
 }
 
-func webhookRequest(webhookBase *url.URL, event EventType, obj *unstructured.Unstructured, objJSON []byte, numRetries int, logger *log.Logger) (*http.Request, error) {
+func webhookRequest(webhookBase *url.URL, event informer.EventType, obj *unstructured.Unstructured, objJSON []byte, numRetries int, logger *log.Logger) (*http.Request, error) {
 	webhook, q := &url.URL{}, webhookBase.Query()
 	q.Set("event", string(event))
 	if numRetries > 0 {
@@ -78,7 +80,7 @@ func webhookRequest(webhookBase *url.URL, event EventType, obj *unstructured.Uns
 	return req, err
 }
 
-func executeWebhooks(ctx context.Context, event EventType, obj *unstructured.Unstructured, objJSON []byte, numRetries int, logger *log.Logger) error {
+func executeWebhooks(ctx context.Context, event informer.EventType, obj *unstructured.Unstructured, objJSON []byte, numRetries int, logger *log.Logger) error {
 	for _, webhook := range webhooks {
 		req, err := webhookRequest(webhook, event, obj, objJSON, numRetries, logger)
 		if err != nil {
@@ -96,7 +98,7 @@ func executeWebhooks(ctx context.Context, event EventType, obj *unstructured.Uns
 	}
 	return nil
 }
-func executeHandlerCommand(ctx context.Context, event EventType, obj *unstructured.Unstructured, objJSON []byte, numRetries int, logger *log.Logger) error {
+func executeHandlerCommand(ctx context.Context, event informer.EventType, obj *unstructured.Unstructured, objJSON []byte, numRetries int, logger *log.Logger) error {
 	handler := exec.CommandContext(ctx, handlerCommand[0], handlerCommand[1:]...)
 	if err := setupHandler(handler, event, obj, objJSON, numRetries, handlerMaxRetries, logger); err != nil {
 		return fmt.Errorf("failed to setup handler: %v", err)
@@ -117,7 +119,7 @@ func formatTimestamp(time *metav1.Time) string {
 	return ret
 }
 
-func setupHandler(handler *exec.Cmd, event EventType, obj *unstructured.Unstructured, objJSON []byte, numRetries int, maxRetries int, logger *log.Logger) error {
+func setupHandler(handler *exec.Cmd, event informer.EventType, obj *unstructured.Unstructured, objJSON []byte, numRetries int, maxRetries int, logger *log.Logger) error {
 	creationTime := obj.GetCreationTimestamp()
 	handler.Env = append(os.Environ(),
 		fmt.Sprintf("INFORMER_EVENT=%s", event),
