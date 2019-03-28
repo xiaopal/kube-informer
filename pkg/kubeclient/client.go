@@ -6,11 +6,20 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"fmt"
 
 	"github.com/spf13/pflag"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+
+	"k8s.io/client-go/discovery/cached"
+	"k8s.io/client-go/restmapper"
+
+	dynamic "k8s.io/client-go/deprecated-dynamic"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
@@ -30,6 +39,10 @@ type Client interface {
 	GetConfig() (*rest.Config, error)
 	Namespace() string
 	DefaultNamespace() string
+	DynamicClientPool() dynamic.ClientPool
+	APIResource(apiVersion, kind string) (*metav1.APIResource, *schema.GroupVersionKind, error)
+	DynamicClient(apiVersion, kind string) (client dynamic.Interface, resource *metav1.APIResource, err error)
+	ResourceClient(apiVersion, kind string) (client dynamic.ResourceInterface, resource *metav1.APIResource, namespace string, err error)
 }
 
 //NewClient func
@@ -39,8 +52,11 @@ func NewClient(opts *ClientOpts) Client {
 
 type client struct {
 	ClientOpts
-	once         sync.Once
-	clientConfig clientcmd.ClientConfig
+	clientConfigOnce sync.Once
+	clientConfig     clientcmd.ClientConfig
+	dynamicOnce sync.Once
+	restMapper     *restmapper.DeferredDiscoveryRESTMapper
+	dynamicPool     dynamic.ClientPool
 }
 
 //BindFlags func
@@ -66,12 +82,13 @@ func (c *client) BindFlags(flags *pflag.FlagSet, envPrefix string) {
 	}
 }
 
-func (c *client) ensure() {
-	c.once.Do(func() {
+func (c *client) ClientConfig() clientcmd.ClientConfig {
+	c.clientConfigOnce.Do(func() {
 		c.clientConfig = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 			&clientcmd.ClientConfigLoadingRules{ExplicitPath: c.KubeConfigPath},
 			&clientcmd.ConfigOverrides{ClusterInfo: clientcmdapi.Cluster{Server: c.MasterURL}})
 	})
+	return c.clientConfig
 }
 
 func (c *client) Namespace() string {
@@ -85,8 +102,7 @@ func (c *client) Namespace() string {
 }
 
 func (c *client) DefaultNamespace() string {
-	c.ensure()
-	if ns, _, _ := c.clientConfig.Namespace(); ns != "" {
+	if ns, _, _ := c.ClientConfig().Namespace(); ns != "" {
 		return ns
 	}
 	if data, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
@@ -98,6 +114,71 @@ func (c *client) DefaultNamespace() string {
 }
 
 func (c *client) GetConfig() (*rest.Config, error) {
-	c.ensure()
-	return c.clientConfig.ClientConfig()
+	return c.ClientConfig().ClientConfig()
+}
+
+func (c *client) GetConfigOrDie() *rest.Config {
+	config, err := c.GetConfig()
+	if err != nil {
+		panic(err)
+	}
+	return config
+}
+
+func (c *client) DynamicClientPool() dynamic.ClientPool{
+	c.dynamicOnce.Do(func(){
+		config := c.GetConfigOrDie()
+		config.ContentConfig = dynamic.ContentConfig()
+		restMapper := restmapper.NewDeferredDiscoveryRESTMapper(cached.NewMemCacheClient(clientset.NewForConfigOrDie(config).Discovery()))
+		restMapper.Reset()
+		c.restMapper, c.dynamicPool = restMapper, dynamic.NewClientPool(config, restMapper, dynamic.LegacyAPIPathResolverFunc)	
+	})
+	return c.dynamicPool	
+}
+
+func (c *client) APIResource(apiVersion, kind string) (*metav1.APIResource, *schema.GroupVersionKind, error) {
+	c.DynamicClientPool()
+	gv, err := schema.ParseGroupVersion(apiVersion)
+	if err != nil {
+		return nil,nil, fmt.Errorf("failed to parse apiVersion: %v", err)
+	}
+	gvk := schema.GroupVersionKind{
+		Group:   gv.Group,
+		Version: gv.Version,
+		Kind:    kind,
+	}
+	mapping, err := c.restMapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get the resource REST mapping for GroupVersionKind(%s): %v", gvk.String(), err)
+	}
+	return &metav1.APIResource{
+		Name:       mapping.Resource.Resource,
+		Namespaced: mapping.Scope == meta.RESTScopeNamespace,
+		Kind:       gvk.Kind,
+	}, &gvk, nil
+}
+
+func (c *client)DynamicClient(apiVersion, kind string) (dynamic.Interface, *metav1.APIResource, error){
+	resource, gvk, err := c.APIResource(apiVersion, kind)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get resource type: %v", err)
+	}
+	client, err := c.DynamicClientPool().ClientForGroupVersionKind(*gvk)
+	if err != nil {
+		return nil,nil, fmt.Errorf("failed to get client for GroupVersionKind(%s): %v", gvk.String(), err)
+	}
+	return client, resource, nil
+}
+
+func (c *client)ResourceClient(apiVersion, kind string) (dynamic.ResourceInterface, *metav1.APIResource, string, error){
+	client, resource, err := c.DynamicClient(apiVersion, kind)
+	if err != nil{
+		return nil,nil, "", err
+	}
+	namespace := c.Namespace()
+	if !resource.Namespaced {
+		namespace = metav1.NamespaceAll
+	}
+	return client.Resource(resource, namespace), resource, namespace, nil
+
 }

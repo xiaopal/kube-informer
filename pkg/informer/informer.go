@@ -9,22 +9,18 @@ import (
 	"os"
 	"time"
 
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	clientset "k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/client-go/discovery/cached"
-	"k8s.io/client-go/restmapper"
 
 	"golang.org/x/time/rate"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	dynamic "k8s.io/client-go/deprecated-dynamic"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
+
+	"github.com/xiaopal/kube-informer/pkg/kubeclient"
 )
 
 //Opts type
@@ -51,12 +47,10 @@ const (
 type informer struct {
 	Opts
 	active         bool
+	client   kubeclient.Client
 	queue          workqueue.RateLimitingInterface
 	deletedObjects objectMap
 	watches        informerWatchList
-	kubeConfig     *rest.Config
-	clientPool     dynamic.ClientPool
-	restMapper     *restmapper.DeferredDiscoveryRESTMapper
 	indexServer    *http.Server
 }
 type informerWatch struct {
@@ -89,12 +83,7 @@ func DefaultRateLimiter(baseDelay time.Duration, maxDelay time.Duration, limitRa
 }
 
 //NewInformer func
-func NewInformer(kubeConfig *rest.Config, informerOpts Opts) Informer {
-	kubeClient := clientset.NewForConfigOrDie(kubeConfig)
-	cachedDiscoveryClient := cached.NewMemCacheClient(kubeClient.Discovery())
-	restMapper := restmapper.NewDeferredDiscoveryRESTMapper(cachedDiscoveryClient)
-	restMapper.Reset()
-	kubeConfig.ContentConfig = dynamic.ContentConfig()
+func NewInformer(client kubeclient.Client, informerOpts Opts) Informer {
 	opts := informerOpts
 	if opts.Logger == nil {
 		opts.Logger = log.New(os.Stderr, "[informer] ", log.Flags())
@@ -116,12 +105,10 @@ func NewInformer(kubeConfig *rest.Config, informerOpts Opts) Informer {
 	}
 	return &informer{
 		Opts:           opts,
+		client:     client,
 		queue:          workqueue.NewRateLimitingQueue(opts.RateLimiter),
 		deletedObjects: objectMap{},
 		watches:        informerWatchList{},
-		kubeConfig:     kubeConfig,
-		clientPool:     dynamic.NewClientPool(kubeConfig, restMapper, dynamic.LegacyAPIPathResolverFunc),
-		restMapper:     restMapper,
 	}
 }
 
@@ -134,49 +121,15 @@ type Informer interface {
 	EnableIndexServer(serverAddr string) *http.ServeMux
 }
 
-func (i *informer) getResourceClient(apiVersion, kind, namespace string) (dynamic.ResourceInterface, string, string, error) {
-	gv, err := schema.ParseGroupVersion(apiVersion)
+func (i *informer) Watch(apiVersion string, kind string, namespace string, labelSelector string, fieldSelector string, resync time.Duration) error {
+	client, resource, err := i.client.DynamicClient(apiVersion, kind)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to parse apiVersion: %v", err)
-	}
-	gvk := schema.GroupVersionKind{
-		Group:   gv.Group,
-		Version: gv.Version,
-		Kind:    kind,
-	}
-	client, err := i.clientPool.ClientForGroupVersionKind(gvk)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to get client for GroupVersionKind(%s): %v", gvk.String(), err)
-	}
-	resource, err := apiResource(gvk, i.restMapper)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to get resource type: %v", err)
+		return err
 	}
 	if !resource.Namespaced {
 		namespace = metav1.NamespaceAll
 	}
-	return client.Resource(resource, namespace), resource.Name, namespace, nil
-}
-
-// apiResource consults the REST mapper to translate an <apiVersion, kind, namespace> tuple to a metav1.APIResource struct.
-func apiResource(gvk schema.GroupVersionKind, restMapper *restmapper.DeferredDiscoveryRESTMapper) (*metav1.APIResource, error) {
-	mapping, err := restMapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get the resource REST mapping for GroupVersionKind(%s): %v", gvk.String(), err)
-	}
-	resource := &metav1.APIResource{
-		Name:       mapping.Resource.Resource,
-		Namespaced: mapping.Scope == meta.RESTScopeNamespace,
-		Kind:       gvk.Kind,
-	}
-	return resource, nil
-}
-
-func (i *informer) Watch(apiVersion string, kind string, namespace string, labelSelector string, fieldSelector string, resync time.Duration) error {
-	resourceClient, resourcePluralName, namespace, err := i.getResourceClient(apiVersion, kind, namespace)
-	if err != nil {
-		return err
-	}
+	resourceClient, resourcePluralName := client.Resource(resource, namespace), resource.Name
 	watch := &informerWatch{
 		name:     fmt.Sprintf("%s/%s %s %s", namespace, resourcePluralName, labelSelector, fieldSelector),
 		informer: i,

@@ -10,12 +10,7 @@ import (
 )
 
 func runInformer(app appctx.Interface) {
-	config, err := kubeClient.GetConfig()
-	if err != nil {
-		logger.Printf("failed to get config: %v", err)
-		return
-	}
-	i := informer.NewInformer(config, informer.Opts{
+	i := informer.NewInformer(kubeClient, informer.Opts{
 		Logger:      logger,
 		Handler:     handleEvent,
 		MaxRetries:  handlerMaxRetries,
