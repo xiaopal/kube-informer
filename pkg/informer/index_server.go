@@ -10,11 +10,10 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-const (
-	locationHealth      = "/health"
-	locationDefault     = "/index"
-	locationIndexPrefix = "/index/"
-)
+// IndexServerLocations type
+type IndexServerLocations struct {
+	Health, Default, IndexPrefix string
+}
 
 func writeJSON(res http.ResponseWriter, statusCode int, data interface{}) error {
 	body, err := json.Marshal(data)
@@ -27,7 +26,7 @@ func writeJSON(res http.ResponseWriter, statusCode int, data interface{}) error 
 	return nil
 }
 
-func handleHealthRequest(res http.ResponseWriter, req *http.Request, informer Informer) error {
+func handleHealthRequest(loc string, res http.ResponseWriter, req *http.Request, informer Informer) error {
 	if !informer.Active() {
 		return writeJSON(res, http.StatusServiceUnavailable, map[string]string{"status": "DOWN"})
 	}
@@ -73,7 +72,7 @@ func writeJSONList(res http.ResponseWriter, req *http.Request, list []interface{
 	return writeJSON(res, http.StatusOK, map[string]interface{}{"total": total, field: list})
 }
 
-func handleDefaultRequest(res http.ResponseWriter, req *http.Request, informer Informer) error {
+func handleDefaultRequest(loc string, res http.ResponseWriter, req *http.Request, informer Informer) error {
 	key, watch := req.FormValue("key"), intParam(req, "watch", 0)
 	indexer, ok := informer.GetIndexer(watch)
 	if !ok {
@@ -95,16 +94,16 @@ func handleDefaultRequest(res http.ResponseWriter, req *http.Request, informer I
 	return writeJSONList(res, req, []interface{}{}, "items")
 }
 
-func handleIndexRequest(res http.ResponseWriter, req *http.Request, informer Informer) error {
+func handleIndexRequest(loc string, res http.ResponseWriter, req *http.Request, informer Informer) error {
 	location, key, watch := req.URL.Path, req.FormValue("key"), intParam(req, "watch", 0)
-	if !strings.HasPrefix(location, locationIndexPrefix) {
+	if !strings.HasPrefix(location, loc) {
 		return fmt.Errorf("illegal location %s", location)
 	}
 	indexer, ok := informer.GetIndexer(watch)
 	if !ok {
 		return fmt.Errorf("watch %v not exists", watch)
 	}
-	indexName := strings.TrimPrefix(location, locationIndexPrefix)
+	indexName := strings.TrimPrefix(location, loc)
 	if indexName == "" {
 		return writeJSONList(res, req, listIndexerNames(indexer.GetIndexers()), "indexes")
 	}
@@ -119,16 +118,28 @@ func handleIndexRequest(res http.ResponseWriter, req *http.Request, informer Inf
 }
 
 func (i *informer) EnableIndexServer(serverAddr string) *http.ServeMux {
-	serverMux, informerHandler := http.NewServeMux(), func(handler func(http.ResponseWriter, *http.Request, Informer) error) func(http.ResponseWriter, *http.Request) {
+	return i.EnableIndexServerWithLocations(serverAddr, IndexServerLocations{
+		"/health", "/index", "/index/",
+	})
+}
+
+func (i *informer) EnableIndexServerWithLocations(serverAddr string, locations IndexServerLocations) *http.ServeMux {
+	serverMux, informerHandler := http.NewServeMux(), func(location string, handler func(string, http.ResponseWriter, *http.Request, Informer) error) func(http.ResponseWriter, *http.Request) {
 		return func(res http.ResponseWriter, req *http.Request) {
-			if err := handler(res, req, i); err != nil {
+			if err := handler(location, res, req, i); err != nil {
 				writeJSON(res, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			}
 		}
 	}
-	serverMux.HandleFunc(locationHealth, informerHandler(handleHealthRequest))
-	serverMux.HandleFunc(locationDefault, informerHandler(handleDefaultRequest))
-	serverMux.HandleFunc(locationIndexPrefix, informerHandler(handleIndexRequest))
+	if location := locations.Health; location != "" {
+		serverMux.HandleFunc(location, informerHandler(location, handleHealthRequest))
+	}
+	if location := locations.Default; location != "" {
+		serverMux.HandleFunc(location, informerHandler(location, handleDefaultRequest))
+	}
+	if location := locations.IndexPrefix; location != "" {
+		serverMux.HandleFunc(location, informerHandler(location, handleIndexRequest))
+	}
 	i.indexServer = &http.Server{Addr: serverAddr, Handler: serverMux}
 	return serverMux
 }
