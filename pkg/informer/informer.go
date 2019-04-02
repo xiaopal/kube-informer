@@ -119,6 +119,7 @@ type Informer interface {
 	Active() bool
 	Run(ctx context.Context) error
 	EnableIndexServer(serverAddr string) *http.ServeMux
+	EnableIndexServerWithLocations(serverAddr string, locations IndexServerLocations) *http.ServeMux 
 }
 
 func (i *informer) Watch(apiVersion string, kind string, namespace string, labelSelector string, fieldSelector string, resync time.Duration) error {
