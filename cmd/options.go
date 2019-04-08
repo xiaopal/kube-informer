@@ -171,8 +171,9 @@ func bindOptions(mainProc func()) *cobra.Command {
 		flags.StringToStringVar(&argIndexes, "index", argIndexes, "http server indexs, define as go template(with sprig funcs), eg. `namespace='{{.metadata.namespace}}'`")
 		flags.StringSliceVar(&templateDelims, "template-delims", templateDelims, "go template delims")
 	}, func(cmd *cobra.Command, args []string) (err error) {
+		handlerCommand = args
 		if handlerName == "" {
-			if handlerCommand = args; len(handlerCommand) > 0 {
+			if len(handlerCommand) > 0 {
 				handlerName = filepath.Base(handlerCommand[0])
 			} else {
 				handlerName = "event"
