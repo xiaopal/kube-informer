@@ -181,6 +181,14 @@
   version = "1.0.1"
 
 [[projects]]
+  branch = "master"
+  digest = "1:a6156889b651cc0bf3d9bef82b6ba8fbb9eb19aefd7bc5718357c38b67297cbc"
+  name = "github.com/mxk/go-flowrate"
+  packages = ["flowrate"]
+  pruneopts = "UT"
+  revision = "cca7078d478f8520f85629ad7c68962d31ed7682"
+
+[[projects]]
   digest = "1:e5d0bd87abc2781d14e274807a470acd180f0499f8bf5bb18606e9ec22ad9de9"
   name = "github.com/pborman/uuid"
   packages = ["."]
@@ -234,11 +242,13 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:c745644c88df7496196bf316dd0e813f1908215ff29e96622c2fc194f21bac0c"
+  digest = "1:e4062746bd939735841b06731116013365b394bd1a792f5e347b0e5130dd3631"
   name = "golang.org/x/net"
   packages = [
     "context",
     "context/ctxhttp",
+    "html",
+    "html/atom",
     "http/httpguts",
     "http2",
     "http2/hpack",
@@ -374,7 +384,7 @@
   revision = "5cb15d34447165a97c76ed5a60e4e99c8a01ecfe"
 
 [[projects]]
-  digest = "1:4a76096693b2210b0c8145855e0310c7a5f0b521b04759e2987f085652bacac5"
+  digest = "1:3f22dc9d7003939cd8195b2165140319cd4d6594df72b9fe33f589e0b8286b32"
   name = "k8s.io/apimachinery"
   packages = [
     "pkg/api/errors",
@@ -403,11 +413,13 @@
     "pkg/util/diff",
     "pkg/util/errors",
     "pkg/util/framer",
+    "pkg/util/httpstream",
     "pkg/util/intstr",
     "pkg/util/json",
     "pkg/util/mergepatch",
     "pkg/util/naming",
     "pkg/util/net",
+    "pkg/util/proxy",
     "pkg/util/runtime",
     "pkg/util/sets",
     "pkg/util/strategicpatch",
@@ -419,6 +431,7 @@
     "pkg/version",
     "pkg/watch",
     "third_party/forked/golang/json",
+    "third_party/forked/golang/netutil",
     "third_party/forked/golang/reflect",
   ]
   pruneopts = "UT"
@@ -540,6 +553,8 @@
     "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured",
     "k8s.io/apimachinery/pkg/runtime",
     "k8s.io/apimachinery/pkg/runtime/schema",
+    "k8s.io/apimachinery/pkg/util/net",
+    "k8s.io/apimachinery/pkg/util/proxy",
     "k8s.io/apimachinery/pkg/util/runtime",
     "k8s.io/apimachinery/pkg/util/uuid",
     "k8s.io/apimachinery/pkg/util/wait",
@@ -556,6 +571,7 @@
     "k8s.io/client-go/tools/clientcmd/api",
     "k8s.io/client-go/tools/leaderelection/resourcelock",
     "k8s.io/client-go/tools/record",
+    "k8s.io/client-go/transport",
     "k8s.io/client-go/util/workqueue",
   ]
   solver-name = "gps-cdcl"
