@@ -1,12 +1,12 @@
 package kubeclient
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"fmt"
 
 	"github.com/spf13/pflag"
 
@@ -37,6 +37,7 @@ type ClientOpts struct {
 type Client interface {
 	BindFlags(flags *pflag.FlagSet, envPrefix string)
 	GetConfig() (*rest.Config, error)
+	GetConfigOrDie() *rest.Config
 	Namespace() string
 	DefaultNamespace() string
 	DynamicClientPool() dynamic.ClientPool
@@ -54,9 +55,9 @@ type client struct {
 	ClientOpts
 	clientConfigOnce sync.Once
 	clientConfig     clientcmd.ClientConfig
-	dynamicOnce sync.Once
-	restMapper     *restmapper.DeferredDiscoveryRESTMapper
-	dynamicPool     dynamic.ClientPool
+	dynamicOnce      sync.Once
+	restMapper       *restmapper.DeferredDiscoveryRESTMapper
+	dynamicPool      dynamic.ClientPool
 }
 
 //BindFlags func
@@ -125,22 +126,22 @@ func (c *client) GetConfigOrDie() *rest.Config {
 	return config
 }
 
-func (c *client) DynamicClientPool() dynamic.ClientPool{
-	c.dynamicOnce.Do(func(){
+func (c *client) DynamicClientPool() dynamic.ClientPool {
+	c.dynamicOnce.Do(func() {
 		config := c.GetConfigOrDie()
 		config.ContentConfig = dynamic.ContentConfig()
 		restMapper := restmapper.NewDeferredDiscoveryRESTMapper(cached.NewMemCacheClient(clientset.NewForConfigOrDie(config).Discovery()))
 		restMapper.Reset()
-		c.restMapper, c.dynamicPool = restMapper, dynamic.NewClientPool(config, restMapper, dynamic.LegacyAPIPathResolverFunc)	
+		c.restMapper, c.dynamicPool = restMapper, dynamic.NewClientPool(config, restMapper, dynamic.LegacyAPIPathResolverFunc)
 	})
-	return c.dynamicPool	
+	return c.dynamicPool
 }
 
 func (c *client) APIResource(apiVersion, kind string) (*metav1.APIResource, *schema.GroupVersionKind, error) {
 	c.DynamicClientPool()
 	gv, err := schema.ParseGroupVersion(apiVersion)
 	if err != nil {
-		return nil,nil, fmt.Errorf("failed to parse apiVersion: %v", err)
+		return nil, nil, fmt.Errorf("failed to parse apiVersion: %v", err)
 	}
 	gvk := schema.GroupVersionKind{
 		Group:   gv.Group,
@@ -158,22 +159,22 @@ func (c *client) APIResource(apiVersion, kind string) (*metav1.APIResource, *sch
 	}, &gvk, nil
 }
 
-func (c *client)DynamicClient(apiVersion, kind string) (dynamic.Interface, *metav1.APIResource, error){
+func (c *client) DynamicClient(apiVersion, kind string) (dynamic.Interface, *metav1.APIResource, error) {
 	resource, gvk, err := c.APIResource(apiVersion, kind)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get resource type: %v", err)
 	}
 	client, err := c.DynamicClientPool().ClientForGroupVersionKind(*gvk)
 	if err != nil {
-		return nil,nil, fmt.Errorf("failed to get client for GroupVersionKind(%s): %v", gvk.String(), err)
+		return nil, nil, fmt.Errorf("failed to get client for GroupVersionKind(%s): %v", gvk.String(), err)
 	}
 	return client, resource, nil
 }
 
-func (c *client)ResourceClient(apiVersion, kind string) (dynamic.ResourceInterface, *metav1.APIResource, string, error){
+func (c *client) ResourceClient(apiVersion, kind string) (dynamic.ResourceInterface, *metav1.APIResource, string, error) {
 	client, resource, err := c.DynamicClient(apiVersion, kind)
-	if err != nil{
-		return nil,nil, "", err
+	if err != nil {
+		return nil, nil, "", err
 	}
 	namespace := c.Namespace()
 	if !resource.Namespaced {

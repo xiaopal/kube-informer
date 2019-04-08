@@ -48,8 +48,9 @@ var (
 	handlerLimitBursts           int
 	handlerRetriesBaseDelay      time.Duration
 	handlerRetriesMaxDelay       time.Duration
-	indexServer                  string
-	indexServerIndexers          = cache.Indexers{}
+	httpServer, indexServer      string
+	proxyAPIServer               string
+	httpServerIndexers           = cache.Indexers{}
 	templateDelims               = []string{"{{", "}}"}
 	kubeClient                   kubeclient.Client
 	leaderHelper                 leaderelect.Helper
@@ -163,8 +164,11 @@ func bindOptions(mainProc func()) *cobra.Command {
 		flags.DurationVar(&handlerRetriesMaxDelay, "retries-max-delay", envToDuration("INFORMER_OPTS_RETRIES_MAX_DELAY", 1000*time.Second), "handler retries: max delay")
 		flags.Float64Var(&handlerLimitRate, "limit-rate", 10, "handler limit: rate per second")
 		flags.IntVar(&handlerLimitBursts, "limit-bursts", 100, "handler limit: bursts")
-		flags.StringVar(&indexServer, "index-server", indexServer, "index server bind addr, eg. `:8080`")
-		flags.StringToStringVar(&argIndexes, "index", argIndexes, "index server indexs, define as go template(with sprig funcs), eg. `namespace='{{.metadata.namespace}}'`")
+		flags.StringVar(&indexServer, "index-server", indexServer, "(DEPRECATED) http server bind addr, eg. `:8080` ")
+		flags.StringVar(&httpServer, "http-server", httpServer, "http server bind addr, eg. `:8080` ")
+		flags.MarkDeprecated("index-server", "use --http-server instead")
+		flags.StringVar(&proxyAPIServer, "api-proxy", "", "proxy api server (on http server) with client ip whitelist, eg. 127.0.0.1, 10.0.0.0/8")
+		flags.StringToStringVar(&argIndexes, "index", argIndexes, "http server indexs, define as go template(with sprig funcs), eg. `namespace='{{.metadata.namespace}}'`")
 		flags.StringSliceVar(&templateDelims, "template-delims", templateDelims, "go template delims")
 	}, func(cmd *cobra.Command, args []string) (err error) {
 		if handlerName == "" {
@@ -208,9 +212,12 @@ func bindOptions(mainProc func()) *cobra.Command {
 			webhooks = append(webhooks, webhookURL)
 		}
 
-		if indexServer != "" {
+		if httpServer == "" && indexServer != "" {
+			httpServer = indexServer
+		}
+		if httpServer != "" {
 			for name, template := range argIndexes {
-				if indexServerIndexers[name], err = objectIndexer(name, template); err != nil {
+				if httpServerIndexers[name], err = objectIndexer(name, template); err != nil {
 					return fmt.Errorf("failed to parse index %s: %v", name, err)
 				}
 			}

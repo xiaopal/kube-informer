@@ -10,7 +10,7 @@ import (
 )
 
 func (i *informer) Run(ctx context.Context) (err error) {
-	logger, server := i.Logger, i.indexServer
+	logger, server := i.Logger, i.httpServer
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	defer i.queue.ShutDown()

@@ -47,11 +47,11 @@ const (
 type informer struct {
 	Opts
 	active         bool
-	client   kubeclient.Client
+	client         kubeclient.Client
 	queue          workqueue.RateLimitingInterface
 	deletedObjects objectMap
 	watches        informerWatchList
-	indexServer    *http.Server
+	httpServer     *http.Server
 }
 type informerWatch struct {
 	name     string
@@ -105,7 +105,7 @@ func NewInformer(client kubeclient.Client, informerOpts Opts) Informer {
 	}
 	return &informer{
 		Opts:           opts,
-		client:     client,
+		client:         client,
 		queue:          workqueue.NewRateLimitingQueue(opts.RateLimiter),
 		deletedObjects: objectMap{},
 		watches:        informerWatchList{},
@@ -119,7 +119,7 @@ type Informer interface {
 	Active() bool
 	Run(ctx context.Context) error
 	EnableIndexServer(serverAddr string) *http.ServeMux
-	EnableIndexServerWithLocations(serverAddr string, locations IndexServerLocations) *http.ServeMux 
+	EnableHTTPServerWithLocations(serverAddr string, locations HTTPServerLocations) *http.ServeMux
 }
 
 func (i *informer) Watch(apiVersion string, kind string, namespace string, labelSelector string, fieldSelector string, resync time.Duration) error {

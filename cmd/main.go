@@ -15,7 +15,7 @@ func runInformer(app appctx.Interface) {
 		Handler:     handleEvent,
 		MaxRetries:  handlerMaxRetries,
 		RateLimiter: informer.DefaultRateLimiter(handlerRetriesBaseDelay, handlerRetriesMaxDelay, handlerLimitRate, handlerLimitBursts),
-		Indexers:    indexServerIndexers,
+		Indexers:    httpServerIndexers,
 	})
 	for _, watch := range watches {
 		err := i.Watch(watch["apiVersion"], watch["kind"], kubeClient.Namespace(), labelSelector, fieldSelector, resyncDuration)
@@ -24,8 +24,16 @@ func runInformer(app appctx.Interface) {
 			return
 		}
 	}
-	if indexServer != "" {
-		i.EnableIndexServer(indexServer)
+	if httpServer != "" {
+		locations := &informer.HTTPServerLocations{
+			Health:       "/health",
+			DefaultIndex: "/index",
+			IndexPrefix:  "/index/",
+		}
+		if proxyAPIServer != "" {
+			locations.APIProxyPrefix, locations.APIProxyAllow = "/api/", proxyAPIServer
+		}
+		i.EnableHTTPServerWithLocations(httpServer, *locations)
 	}
 	if err := i.Run(app.Context()); err != nil {
 		logger.Printf("informer exited: %v", err)
